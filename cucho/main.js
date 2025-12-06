@@ -1,30 +1,11 @@
-// Vertex shader: posiciones 2D y tipo de terreno.
-const vertexSrc = `
-  attribute vec2 aPosition;
-  attribute float aTerrainType;
-  varying float vTerrainType;
-  void main() {
-    gl_Position = vec4(aPosition, 0.0, 1.0);
-    vTerrainType = aTerrainType;
+// Carga el texto de un shader desde un archivo.
+async function loadShaderSource(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`No se pudo cargar ${url}: ${response.statusText}`);
   }
-`;
-
-// Fragment shader: colorea segun el tipo de terreno.
-const fragmentSrc = `
-  precision mediump float;
-  varying float vTerrainType;
-  void main() {
-    vec3 color;
-    if (vTerrainType < 0.5) {
-      color = vec3(0.7, 0.3, 0.2);   // arcilla
-    } else if (vTerrainType < 1.5) {
-      color = vec3(0.9, 0.8, 0.3);   // trigo
-    } else {
-      color = vec3(0.5, 0.5, 0.6);   // piedra
-    }
-    gl_FragColor = vec4(color, 1.0);
-  }
-`;
+  return response.text();
+}
 
 // Compila un shader y muestra errores en consola.
 function createShader(gl, type, source) {
@@ -118,7 +99,7 @@ function drawGeometry(gl, locations, positions, terrainTypes, mode) {
   gl.drawArrays(mode, 0, positions.length / 2);
 }
 
-function main() {
+async function main() {
   const canvas = document.getElementById('glcanvas');
   const gl = canvas.getContext('webgl');
   if (!gl) {
@@ -129,6 +110,19 @@ function main() {
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.clearColor(0.08, 0.1, 0.12, 1.0);
   gl.clear(gl.COLOR_BUFFER_BIT);
+
+  let vertexSrc;
+  let fragmentSrc;
+  try {
+    [vertexSrc, fragmentSrc] = await Promise.all([
+      loadShaderSource('vertex.glsl'),
+      loadShaderSource('fragment.glsl'),
+    ]);
+  } catch (err) {
+    console.error(err);
+    alert('No se pudieron cargar los shaders. Revise la consola.');
+    return;
+  }
 
   const program = createProgram(gl, vertexSrc, fragmentSrc);
   if (!program) {
@@ -188,4 +182,7 @@ function main() {
 }
 
 // Ejecutar la escena al cargar.
-main();
+main().catch((err) => {
+  console.error(err);
+  alert('Ocurrio un error inicializando la escena.');
+});
