@@ -2,6 +2,8 @@
 
 varying vec3 vColor;
 varying vec2 vPlanePos;
+varying vec2 vLocalPos;
+varying vec2 vCellCenter;
 varying vec3 vBary;
 varying float vBiome;
 varying float vHeight;
@@ -38,12 +40,22 @@ float fbm(vec2 p) {
   return v;
 }
 
-float biomeBias(float biome) {
-  return (biome < 0.5) ? 0.06 : (biome < 1.5 ? 0.0 : 0.04);
+vec2 biomeRange(float biome) {
+  if (biome < 0.5)      return vec2(0.2, 0.3);
+  else if (biome < 1.5) return vec2(-0.05, 0.05);
+  else                  return vec2(0.05, 0.15);
 }
 
-float heightField(float biome, vec2 p, float edgeBlend) {
-  return ((fbm(p * 2.8) - 0.5) * uHeightScale + biomeBias(biome)) * edgeBlend;
+float heightField(float biome, vec2 worldPos, vec2 localPos, vec2 cellCenter, float edgeBlend) {
+  vec2 range = biomeRange(biome);
+  float macro = fbm(worldPos * 0.55);
+  float mid = fbm(worldPos * 1.8);
+  float seed = hash21(cellCenter * 19.17) * 6.2831;
+  float fine = fbm(localPos * 5.0 + seed);
+  float detail = fbm(localPos * 12.0 + seed * 1.37);
+  float n = clamp(macro * 0.35 + mid * 0.35 + fine * 0.2 + detail * 0.1, 0.0, 1.0);
+  float h = mix(range.x, range.y, n);
+  return h * edgeBlend;
 }
 
 void main() {
@@ -52,7 +64,9 @@ void main() {
   float biome = floor(vBiome + 0.5);
   vec3 albedo = vColor;
   vec2 p = vPlanePos;
-  float height = heightField(biome, p, vEdgeBlend);
+  vec2 l = vLocalPos;
+  vec2 c = vCellCenter;
+  float height = heightField(biome, p, l, c, vEdgeBlend) * uHeightScale;
 
   if (biome < 0.5) {
     float n = fbm(p * 6.0);
@@ -76,8 +90,8 @@ void main() {
 
   float eps = 0.01;
   float hC = height;
-  float hX = heightField(biome, p + vec2(eps, 0.0), vEdgeBlend);
-  float hY = heightField(biome, p + vec2(0.0, eps), vEdgeBlend);
+  float hX = heightField(biome, p + vec2(eps, 0.0), l + vec2(eps, 0.0), c, vEdgeBlend) * uHeightScale;
+  float hY = heightField(biome, p + vec2(0.0, eps), l + vec2(0.0, eps), c, vEdgeBlend) * uHeightScale;
   vec3 normal = normalize(vec3(hX - hC, eps, hY - hC));
   vec3 L = normalize(uLightDir);
   float diff = clamp(dot(normal, L), 0.05, 1.0);
@@ -95,4 +109,3 @@ void main() {
 
   gl_FragColor = vec4(color, 1.0);
 }
-

@@ -1,0 +1,5 @@
+PASO 1: Primero armamos todo el entorno para poder empezar a visualizarlo y luego pasamos a dibujar en la pantalla
+    comenzamos dibujando hexagonos en la pantalla, pasandole el centroX, centroY, radio y el tipo de terreno, los hexagonos
+    se arman calculando los vertices con coseno y seno cada 60 grados. Esta entrada se tranforma en un TRIANGLE_FAN y 
+    hexFanToTriangles lo descompone en varios triangulos explicitos y luego concatenamos todas esas posiciones y tipos en 
+    un buffer de posiciones y uno de tipos del vertex shader para poder hacer un solo draw arrays

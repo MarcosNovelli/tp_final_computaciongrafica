@@ -1,15 +1,16 @@
+// Minimal WebGL viewer: sets up pointer-lock camera controls and feeds uniforms to the raymarching shader.
 // Global variables
 let gl;
 let program;
 let canvas;
 
-// Camera state
+// Camera state (edit here to tune feel)
 const camera = {
-    pos: [0, 10, 0],
-    yaw: 0,
-    pitch: 0,
-    speed: 5.0,
-    fov: 0.5 // Scale factor for FOV
+    pos: [0, 10, 0], // World position
+    yaw: 0,         // Horizontal angle in radians
+    pitch: 0,       // Vertical angle in radians (clamped below)
+    speed: 5.0,     // Walk/fly speed units per second
+    fov: 0.5        // Scale factor for FOV passed to shader; higher = wider view
 };
 
 // Input state
@@ -25,7 +26,7 @@ async function init() {
         return;
     }
 
-    // Resize canvas
+    // Resize canvas to fill the viewport
     window.addEventListener('resize', resize);
     resize();
 
@@ -45,7 +46,7 @@ async function init() {
     document.addEventListener('mousemove', e => {
         if (mouse.down) {
             camera.yaw -= e.movementX * 0.002;
-            camera.pitch -= e.movementY * 0.002;
+            camera.pitch -= e.movementY * 0.002; // Look up/down
             
             // Clamp pitch
             camera.pitch = Math.max(-1.5, Math.min(1.5, camera.pitch));
@@ -94,7 +95,7 @@ function loop(time) {
 function update(dt) {
     if (!mouse.down) return; // Only move when captured
 
-    const speed = keys['ShiftLeft'] ? camera.speed * 4 : camera.speed;
+    const speed = keys['ShiftLeft'] ? camera.speed * 4 : camera.speed; // Hold Shift to sprint
     const moveSpeed = speed * dt;
 
     const forward = [
@@ -135,6 +136,7 @@ function update(dt) {
 function render(time) {
     gl.viewport(0, 0, canvas.width, canvas.height);
 
+    // Uniform locations (resolved each frame for simplicity)
     const uResolution = gl.getUniformLocation(program, 'uResolution');
     const uTime = gl.getUniformLocation(program, 'uTime');
     const uCamPos = gl.getUniformLocation(program, 'uCamPos');
@@ -152,18 +154,7 @@ function render(time) {
         Math.cos(camera.yaw) * Math.cos(camera.pitch)
     ];
     
-    // In shader we expect Z+ to be "back" or "forward"? 
-    // Usually in standard GL, Z- is forward.
-    // Let's just pass the direction vector and handle it in shader.
-    // My shader math: rd = normalize(forward + uv.x * right + uv.y * up)
-    // So forward should be the look direction.
-    
-    // Wait, my trig above:
-    // yaw=0 -> sin(0)=0, cos(0)=1 -> (0, 0, 1). This is Z+.
-    // If I want to look "forward" into the screen, typically that is Z-.
-    // So let's invert the Z component or adjust yaw.
-    // Actually, let's just pass this and see.
-    
+    // Build camera direction; Z is flipped to look toward negative Z for a conventional forward
     gl.uniform3f(uCamDir, -Math.sin(camera.yaw) * Math.cos(camera.pitch), Math.sin(camera.pitch), -Math.cos(camera.yaw) * Math.cos(camera.pitch));
     
     gl.uniform3f(uCamUp, 0, 1, 0);

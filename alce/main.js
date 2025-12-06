@@ -15,12 +15,15 @@ attribute vec3 aColor;
 attribute vec3 aBary;
 attribute float aBiome;
 attribute float aEdge;
+attribute vec2 aCellCenter;
 
 uniform mat4 uViewProj;
 uniform float uHeightScale;
 
 varying vec3 vColor;
 varying vec2 vPlanePos;
+varying vec2 vLocalPos;
+varying vec2 vCellCenter;
 varying vec3 vBary;
 varying float vBiome;
 varying float vHeight;
@@ -60,21 +63,28 @@ vec2 biomeRange(float biome) {
   else                  return vec2(0.05, 0.15);
 }
 
-float heightField(float biome, vec2 p, float edgeBlend) {
+float heightField(float biome, vec2 worldPos, vec2 localPos, vec2 cellCenter, float edgeBlend) {
   vec2 range = biomeRange(biome);
-  float n = fbm(p * 2.8);
-  float h = range.x + (range.y - range.x) * n;
+  float macro = fbm(worldPos * 0.55);
+  float mid = fbm(worldPos * 1.8);
+  float seed = hash21(cellCenter * 19.17) * 6.2831;
+  float fine = fbm(localPos * 5.0 + seed);
+  float detail = fbm(localPos * 12.0 + seed * 1.37);
+  float n = clamp(macro * 0.35 + mid * 0.35 + fine * 0.2 + detail * 0.1, 0.0, 1.0);
+  float h = mix(range.x, range.y, n);
   return h * edgeBlend;
 }
 
 void main() {
   vPlanePos = aPosition;
+  vLocalPos = aPosition - aCellCenter;
+  vCellCenter = aCellCenter;
   vColor = aColor;
   vBary = aBary;
   vBiome = aBiome;
   vEdgeBlend = aEdge;
 
-  float h = heightField(aBiome, aPosition, aEdge) * uHeightScale;
+  float h = heightField(aBiome, aPosition, vLocalPos, aCellCenter, aEdge) * uHeightScale;
   vHeight = h;
 
   // Desplazar en Y con la altura para dar volumen real.
@@ -116,8 +126,9 @@ function createProgram(gl, vsSource, fsSource) {
 
 // Datos del tablero
 const BOARD_RADIUS = 2;
-const HEX_SIZE = 0.32;
-const HEX_SUBDIV = 100; // subdivisiones radiales por lado
+const HEX_SIZE = 10;
+const HEX_SUBDIV = 6; // subdivisiones radiales por lado
+const HEIGHT_SCALE = 1.0;
 
 const terrainOrder = ["piedra", "arcilla", "bosque"];
 const terrainColors = {
@@ -139,6 +150,7 @@ function axialToWorld(q, r, size) {
 
 function buildBoardMesh() {
   const cells = [];
+  const cellInfo = [];
   let maxExtent = 0;
 
   for (let q = -BOARD_RADIUS; q <= BOARD_RADIUS; q++) {
@@ -167,14 +179,15 @@ function buildBoardMesh() {
   const bary = [];
   const biomes = [];
   const edges = [];
+  const centers = [];
+  const radius = Math.hypot(cornerOffsets[0][0], cornerOffsets[0][1]);
 
   for (const cell of cells) {
     const cx = cell.center[0] * scale;
     const cy = cell.center[1] * scale;
     const color = terrainColors[cell.terrain];
     const biomeId = terrainOrder.indexOf(cell.terrain);
-
-    const radius = Math.hypot(cornerOffsets[0][0], cornerOffsets[0][1]);
+    cellInfo.push({ center: [cx, cy], biomeId });
 
     for (let i = 0; i < 6; i++) {
       const a = cornerOffsets[i];
@@ -205,6 +218,7 @@ function buildBoardMesh() {
             bary.push(edgeFactor, 0, 0);
             biomes.push(biomeId);
             edges.push(edgeFactor);
+            centers.push(cx, cy);
           }
         }
       }
@@ -217,7 +231,11 @@ function buildBoardMesh() {
     bary: new Float32Array(bary),
     biomes: new Float32Array(biomes),
     edges: new Float32Array(edges),
-    count: positions.length / 2
+    centers: new Float32Array(centers),
+    count: positions.length / 2,
+    cells: cellInfo,
+    hexRadius: radius,
+    scale
   };
 }
 
@@ -226,6 +244,60 @@ function uploadBuffer(gl, attrib, buffer, data, size) {
   gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
   gl.enableVertexAttribArray(attrib);
   gl.vertexAttribPointer(attrib, size, gl.FLOAT, false, 0, 0);
+  return buffer;
+}
+
+function jsHash21(x, y) {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+function jsNoise2(x, y) {
+  const ix = Math.floor(x);
+  const iy = Math.floor(y);
+  const fx = x - ix;
+  const fy = y - iy;
+  const a = jsHash21(ix, iy);
+  const b = jsHash21(ix + 1, iy);
+  const c = jsHash21(ix, iy + 1);
+  const d = jsHash21(ix + 1, iy + 1);
+  const ux = fx * fx * (3 - 2 * fx);
+  const uy = fy * fy * (3 - 2 * fy);
+  return (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy;
+}
+
+function jsFbm(x, y) {
+  let v = 0;
+  let f = 1;
+  let a = 1;
+  for (let i = 0; i < 4; i++) {
+    v += jsNoise2(x * f, y * f) * a;
+    f *= 2.2;
+    a *= 0.55;
+  }
+  return v;
+}
+
+function jsBiomeRange(biome) {
+  if (biome < 0.5) return [0.2, 0.3];
+  if (biome < 1.5) return [-0.05, 0.05];
+  return [0.05, 0.15];
+}
+
+function jsHeightField(biome, worldPos, localPos, cellCenter, edgeBlend) {
+  const range = jsBiomeRange(biome);
+  const macro = jsFbm(worldPos[0] * 0.55, worldPos[1] * 0.55);
+  const mid = jsFbm(worldPos[0] * 1.8, worldPos[1] * 1.8);
+  const seed = jsHash21(cellCenter[0] * 19.17, cellCenter[1] * 19.17) * 6.2831;
+  const fine = jsFbm(localPos[0] * 5 + seed, localPos[1] * 5 + seed);
+  const detail = jsFbm(localPos[0] * 12 + seed * 1.37, localPos[1] * 12 + seed * 1.37);
+  const n = Math.min(Math.max(macro * 0.35 + mid * 0.35 + fine * 0.2 + detail * 0.1, 0), 1);
+  return (range[0] + (range[1] - range[0]) * n) * edgeBlend;
+}
+
+function smoothstep(edge0, edge1, x) {
+  const t = Math.min(Math.max((x - edge0) / (edge1 - edge0), 0), 1);
+  return t * t * (3 - 2 * t);
 }
 
 let program;
@@ -235,6 +307,15 @@ let uViewProjLoc;
 let uHeightScaleLoc;
 let uLightDirLoc;
 let vertexCount = 0;
+let terrainAttribs = {};
+let terrainBuffers = {};
+
+let treeProgram;
+let treeViewProjLoc;
+let treeLightDirLoc;
+let treeVertexCount = 0;
+let treeAttribs = {};
+let treeBuffers = {};
 
 const camera = {
   radius: 2.8,
@@ -343,6 +424,328 @@ function mul4(a, b) {
   return out;
 }
 
+function rotateY(vec, angle) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return [
+    vec[0] * c - vec[2] * s,
+    vec[1],
+    vec[0] * s + vec[2] * c
+  ];
+}
+
+function transformY(vec, angle, offset, scale = 1) {
+  const r = rotateY([vec[0] * scale, vec[1] * scale, vec[2] * scale], angle);
+  return [r[0] + offset[0], r[1] + offset[1], r[2] + offset[2]];
+}
+
+function normalFromPoints(a, b, c) {
+  const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  return normalize(cross(ab, ac));
+}
+
+function pushTriangle(outPos, outNorm, outCol, a, b, c, color) {
+  const n = normalFromPoints(a, b, c);
+  outPos.push(...a, ...b, ...c);
+  outNorm.push(...n, ...n, ...n);
+  outCol.push(...color, ...color, ...color);
+}
+
+function pushQuad(outPos, outNorm, outCol, a, b, c, d, color) {
+  pushTriangle(outPos, outNorm, outCol, a, b, c, color);
+  pushTriangle(outPos, outNorm, outCol, a, c, d, color);
+}
+
+function addFallbackTree(basePos, angle, scale, outPos, outNorm, outCol) {
+  const trunkHeight = 0.18 * scale;
+  const trunkWidth = 0.05 * scale;
+  const leafHeight = 0.32 * scale;
+  const leafRadius = 0.16 * scale;
+
+  const trunkColor = [0.36, 0.24, 0.14];
+  const leafColor = [0.12, 0.44, 0.18];
+
+  const y0 = 0;
+  const y1 = trunkHeight;
+  const hw = trunkWidth * 0.5;
+  const hd = trunkWidth * 0.5;
+
+  const front = [
+    [-hw, y0, hd],
+    [ hw, y0, hd],
+    [ hw, y1, hd],
+    [-hw, y1, hd]
+  ];
+  const back = [
+    [-hw, y0, -hd],
+    [-hw, y1, -hd],
+    [ hw, y1, -hd],
+    [ hw, y0, -hd]
+  ];
+  const left = [
+    [-hw, y0, -hd],
+    [-hw, y0,  hd],
+    [-hw, y1,  hd],
+    [-hw, y1, -hd]
+  ];
+  const right = [
+    [ hw, y0, -hd],
+    [ hw, y1, -hd],
+    [ hw, y1,  hd],
+    [ hw, y0,  hd]
+  ];
+  const top = [
+    [-hw, y1, -hd],
+    [-hw, y1,  hd],
+    [ hw, y1,  hd],
+    [ hw, y1, -hd]
+  ];
+
+  const transformFace = (face) => face.map((v) => transformY(v, angle, basePos));
+  pushQuad(outPos, outNorm, outCol, ...transformFace(front), trunkColor);
+  pushQuad(outPos, outNorm, outCol, ...transformFace(back), trunkColor);
+  pushQuad(outPos, outNorm, outCol, ...transformFace(left), trunkColor);
+  pushQuad(outPos, outNorm, outCol, ...transformFace(right), trunkColor);
+  pushQuad(outPos, outNorm, outCol, ...transformFace(top), trunkColor);
+
+  const leafBase = y1;
+  const tip = transformY([0, leafBase + leafHeight, 0], angle, basePos);
+  const b0 = transformY([-leafRadius, leafBase, -leafRadius], angle, basePos);
+  const b1 = transformY([ leafRadius, leafBase, -leafRadius], angle, basePos);
+  const b2 = transformY([ leafRadius, leafBase,  leafRadius], angle, basePos);
+  const b3 = transformY([-leafRadius, leafBase,  leafRadius], angle, basePos);
+
+  pushTriangle(outPos, outNorm, outCol, b0, b1, tip, leafColor);
+  pushTriangle(outPos, outNorm, outCol, b1, b2, tip, leafColor);
+  pushTriangle(outPos, outNorm, outCol, b2, b3, tip, leafColor);
+  pushTriangle(outPos, outNorm, outCol, b3, b0, tip, leafColor);
+  pushQuad(outPos, outNorm, outCol, b0, b1, b2, b3, leafColor);
+}
+
+function parseOBJ(text) {
+  const verts = [];
+  const norms = [];
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let maxRadius = 0;
+
+  const lines = text.split(/\r?\n/);
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (line.startsWith("v ")) {
+      const parts = line.split(/\s+/);
+      const x = parseFloat(parts[1]);
+      const y = parseFloat(parts[2]);
+      const z = parseFloat(parts[3]);
+      verts.push([x, y, z]);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+      maxRadius = Math.max(maxRadius, Math.hypot(x, z));
+    } else if (line.startsWith("vn ")) {
+      const parts = line.split(/\s+/);
+      norms.push([parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])]);
+    }
+  }
+
+  const height = maxY - minY || 1;
+  const trunkColor = [0.36, 0.24, 0.14];
+  const leafColor = [0.12, 0.44, 0.18];
+
+  const outPos = [];
+  const outNorm = [];
+  const outCol = [];
+
+  const getVert = (token) => {
+    const parts = token.split("/");
+    let vi = parseInt(parts[0], 10);
+    if (Number.isNaN(vi)) return null;
+    if (vi < 0) vi = verts.length + vi + 1;
+    vi -= 1;
+    const pos = verts[vi];
+
+    let ni = parts.length > 2 && parts[2] !== "" ? parseInt(parts[2], 10) : null;
+    if (ni !== null) {
+      if (ni < 0) ni = norms.length + ni + 1;
+      ni -= 1;
+    }
+    const norm = ni !== null && norms[ni] ? norms[ni] : [0, 1, 0];
+    return { pos, norm };
+  };
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line.startsWith("f ")) continue;
+    const parts = line.split(/\s+/).slice(1);
+    if (parts.length < 3) continue;
+
+    const v0Tok = parts[0];
+    for (let i = 1; i + 1 < parts.length; i++) {
+      const v1Tok = parts[i];
+      const v2Tok = parts[i + 1];
+      const v0 = getVert(v0Tok);
+      const v1 = getVert(v1Tok);
+      const v2 = getVert(v2Tok);
+      if (!v0 || !v1 || !v2) continue;
+
+      const vertsTri = [v0, v1, v2];
+      for (const v of vertsTri) {
+        const yNorm = (v.pos[1] - minY) / height;
+        const t = smoothstep(0.32, 0.6, yNorm);
+        const color = [
+          trunkColor[0] + (leafColor[0] - trunkColor[0]) * t,
+          trunkColor[1] + (leafColor[1] - trunkColor[1]) * t,
+          trunkColor[2] + (leafColor[2] - trunkColor[2]) * t
+        ];
+        outPos.push(v.pos[0], v.pos[1], v.pos[2]);
+        outNorm.push(v.norm[0], v.norm[1], v.norm[2]);
+        outCol.push(color[0], color[1], color[2]);
+      }
+    }
+  }
+
+  return {
+    positions: new Float32Array(outPos),
+    normals: new Float32Array(outNorm),
+    colors: new Float32Array(outCol),
+    minY,
+    height,
+    radius: maxRadius
+  };
+}
+
+async function loadMapleModel() {
+  try {
+    const resp = await fetch("MapleTree.obj");
+    if (!resp.ok) throw new Error("status " + resp.status);
+    const text = await resp.text();
+    const model = parseOBJ(text);
+    console.log("MapleTree.obj cargado, vertices:", model.positions.length / 3);
+    return model;
+  } catch (err) {
+    console.warn("No se pudo cargar MapleTree.obj, se usará árbol simple.", err);
+    return null;
+  }
+}
+
+function addModelInstance(model, basePos, angle, scale, outPos, outNorm, outCol) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const yOffset = basePos[1] - model.minY * scale;
+
+  for (let i = 0; i < model.positions.length; i += 3) {
+    const px = model.positions[i] * scale;
+    const py = model.positions[i + 1] * scale;
+    const pz = model.positions[i + 2] * scale;
+    const rx = px * c - pz * s;
+    const rz = px * s + pz * c;
+    outPos.push(basePos[0] + rx, yOffset + py, basePos[2] + rz);
+
+    const nx = model.normals[i];
+    const ny = model.normals[i + 1];
+    const nz = model.normals[i + 2];
+    const rnx = nx * c - nz * s;
+    const rnz = nx * s + nz * c;
+    outNorm.push(rnx, ny, rnz);
+
+    outCol.push(model.colors[i], model.colors[i + 1], model.colors[i + 2]);
+  }
+}
+
+function buildTreeMesh(cellInfo, hexRadius, baseModel) {
+  const positions = [];
+  const normals = [];
+  const colors = [];
+  const forestId = terrainOrder.indexOf("bosque");
+
+  for (const cell of cellInfo) {
+    if (cell.biomeId !== forestId) continue;
+
+    const baseSeed = jsHash21(cell.center[0] * 37.17, cell.center[1] * 91.7);
+    const usingModel = !!baseModel;
+    const treeCount = usingModel ? 1 + Math.floor(baseSeed * 1.2) : 2 + Math.floor(baseSeed * 2.0);
+
+    for (let i = 0; i < treeCount; i++) {
+      const seedRot = jsHash21(cell.center[0] + i * 1.37, cell.center[1] - i * 2.17);
+      const seedOff = jsHash21(cell.center[0] * 3.11 + i * 5.31, cell.center[1] * 4.71 - i * 1.87);
+      const seedSize = jsHash21(cell.center[0] * 12.3 + i * 7.1, cell.center[1] * 6.7 - i * 3.3);
+
+      const angle = seedRot * Math.PI * 2;
+      const offsetRadius = (0.18 + 0.35 * seedOff) * hexRadius;
+      const offset = [
+        Math.cos(angle) * offsetRadius,
+        Math.sin(angle) * offsetRadius
+      ];
+
+      const distFromCenter = Math.hypot(offset[0], offset[1]);
+      const edgeBlend = 1.0 - Math.min(distFromCenter / hexRadius, 1.0);
+
+      const worldPos = [cell.center[0] + offset[0], cell.center[1] + offset[1]];
+      const localPos = [offset[0], offset[1]];
+      const baseHeight = jsHeightField(cell.biomeId, worldPos, localPos, cell.center, edgeBlend) * HEIGHT_SCALE;
+      const base = [worldPos[0], baseHeight, worldPos[1]];
+
+      if (usingModel) {
+        const targetHeight = hexRadius * (0.3 + 0.6 * seedSize);
+        const scale = targetHeight / Math.max(baseModel.height, 0.001);
+        addModelInstance(baseModel, base, angle, scale, positions, normals, colors);
+      } else {
+        const treeScale = 0.45 + 0.35 * seedSize;
+        addFallbackTree(base, angle, treeScale, positions, normals, colors);
+      }
+    }
+  }
+
+  return {
+    positions: new Float32Array(positions),
+    normals: new Float32Array(normals),
+    colors: new Float32Array(colors),
+    count: positions.length / 3
+  };
+}
+
+function bindTerrainAttributes() {
+  if (!terrainBuffers.position) return;
+  gl.bindBuffer(gl.ARRAY_BUFFER, terrainBuffers.position);
+  gl.enableVertexAttribArray(terrainAttribs.position);
+  gl.vertexAttribPointer(terrainAttribs.position, 2, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, terrainBuffers.color);
+  gl.enableVertexAttribArray(terrainAttribs.color);
+  gl.vertexAttribPointer(terrainAttribs.color, 3, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, terrainBuffers.bary);
+  gl.enableVertexAttribArray(terrainAttribs.bary);
+  gl.vertexAttribPointer(terrainAttribs.bary, 3, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, terrainBuffers.biome);
+  gl.enableVertexAttribArray(terrainAttribs.biome);
+  gl.vertexAttribPointer(terrainAttribs.biome, 1, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, terrainBuffers.edge);
+  gl.enableVertexAttribArray(terrainAttribs.edge);
+  gl.vertexAttribPointer(terrainAttribs.edge, 1, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, terrainBuffers.center);
+  gl.enableVertexAttribArray(terrainAttribs.center);
+  gl.vertexAttribPointer(terrainAttribs.center, 2, gl.FLOAT, false, 0, 0);
+}
+
+function bindTreeAttributes() {
+  if (!treeBuffers.position) return;
+  gl.bindBuffer(gl.ARRAY_BUFFER, treeBuffers.position);
+  gl.enableVertexAttribArray(treeAttribs.position);
+  gl.vertexAttribPointer(treeAttribs.position, 3, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, treeBuffers.normal);
+  gl.enableVertexAttribArray(treeAttribs.normal);
+  gl.vertexAttribPointer(treeAttribs.normal, 3, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, treeBuffers.color);
+  gl.enableVertexAttribArray(treeAttribs.color);
+  gl.vertexAttribPointer(treeAttribs.color, 3, gl.FLOAT, false, 0, 0);
+}
+
 function render() {
   resize();
 
@@ -350,6 +753,7 @@ function render() {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   gl.useProgram(program);
+  bindTerrainAttributes();
   gl.uniform1f(uEdgeLoc, 0.04);
 
   const aspect = canvas.width / canvas.height;
@@ -372,12 +776,20 @@ function render() {
   const viewProj = mul4(proj, view);
 
   gl.uniformMatrix4fv(uViewProjLoc, false, viewProj);
-  gl.uniform1f(uHeightScaleLoc, 1.0);
+  gl.uniform1f(uHeightScaleLoc, HEIGHT_SCALE);
 
   const lightDir = normalize([-0.35, 0.85, 0.3]);
   gl.uniform3f(uLightDirLoc, lightDir[0], lightDir[1], lightDir[2]);
 
   gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
+
+  if (treeProgram && treeVertexCount > 0) {
+    gl.useProgram(treeProgram);
+    bindTreeAttributes();
+    gl.uniformMatrix4fv(treeViewProjLoc, false, viewProj);
+    gl.uniform3f(treeLightDirLoc, lightDir[0], lightDir[1], lightDir[2]);
+    gl.drawArrays(gl.TRIANGLES, 0, treeVertexCount);
+  }
   requestAnimationFrame(render);
 }
 
@@ -387,6 +799,8 @@ precision mediump float;
 
 varying vec3 vColor;
 varying vec2 vPlanePos;
+varying vec2 vLocalPos;
+varying vec2 vCellCenter;
 varying vec3 vBary;
 varying float vBiome;
 varying float vHeight;
@@ -423,12 +837,22 @@ float fbm(vec2 p) {
   return v;
 }
 
-float biomeBias(float biome) {
-  return (biome < 0.5) ? 0.06 : (biome < 1.5 ? 0.0 : 0.04);
+vec2 biomeRange(float biome) {
+  if (biome < 0.5)      return vec2(0.2, 0.3);
+  else if (biome < 1.5) return vec2(-0.05, 0.05);
+  else                  return vec2(0.05, 0.15);
 }
 
-float heightField(float biome, vec2 p, float edgeBlend) {
-  return ((fbm(p * 2.8) - 0.5) * uHeightScale + biomeBias(biome)) * edgeBlend;
+float heightField(float biome, vec2 worldPos, vec2 localPos, vec2 cellCenter, float edgeBlend) {
+  vec2 range = biomeRange(biome);
+  float macro = fbm(worldPos * 0.55);
+  float mid = fbm(worldPos * 1.8);
+  float seed = hash21(cellCenter * 19.17) * 6.2831;
+  float fine = fbm(localPos * 5.0 + seed);
+  float detail = fbm(localPos * 12.0 + seed * 1.37);
+  float n = clamp(macro * 0.35 + mid * 0.35 + fine * 0.2 + detail * 0.1, 0.0, 1.0);
+  float h = mix(range.x, range.y, n);
+  return h * edgeBlend;
 }
 
 void main() {
@@ -437,7 +861,9 @@ void main() {
   float biome = floor(vBiome + 0.5);
   vec3 albedo = vColor;
   vec2 p = vPlanePos;
-  float height = heightField(biome, p, vEdgeBlend);
+  vec2 l = vLocalPos;
+  vec2 c = vCellCenter;
+  float height = heightField(biome, p, l, c, vEdgeBlend) * uHeightScale;
 
   if (biome < 0.5) {
     float n = fbm(p * 6.0);
@@ -461,8 +887,8 @@ void main() {
 
   float eps = 0.01;
   float hC = height;
-  float hX = heightField(biome, p + vec2(eps, 0.0), vEdgeBlend);
-  float hY = heightField(biome, p + vec2(0.0, eps), vEdgeBlend);
+  float hX = heightField(biome, p + vec2(eps, 0.0), l + vec2(eps, 0.0), c, vEdgeBlend) * uHeightScale;
+  float hY = heightField(biome, p + vec2(0.0, eps), l + vec2(0.0, eps), c, vEdgeBlend) * uHeightScale;
   vec3 normal = normalize(vec3(hX - hC, eps, hY - hC));
   vec3 L = normalize(uLightDir);
   float diff = clamp(dot(normal, L), 0.05, 1.0);
@@ -511,12 +937,78 @@ void main() {
   const aBary = gl.getAttribLocation(program, "aBary");
   const aBiome = gl.getAttribLocation(program, "aBiome");
   const aEdge = gl.getAttribLocation(program, "aEdge");
+  const aCellCenter = gl.getAttribLocation(program, "aCellCenter");
 
-  uploadBuffer(gl, aPos, gl.createBuffer(), mesh.positions, 2);
-  uploadBuffer(gl, aColor, gl.createBuffer(), mesh.colors, 3);
-  uploadBuffer(gl, aBary, gl.createBuffer(), mesh.bary, 3);
-  uploadBuffer(gl, aBiome, gl.createBuffer(), mesh.biomes, 1);
-  uploadBuffer(gl, aEdge, gl.createBuffer(), mesh.edges, 1);
+  terrainAttribs = {
+    position: aPos,
+    color: aColor,
+    bary: aBary,
+    biome: aBiome,
+    edge: aEdge,
+    center: aCellCenter
+  };
+
+  terrainBuffers = {
+    position: uploadBuffer(gl, aPos, gl.createBuffer(), mesh.positions, 2),
+    color: uploadBuffer(gl, aColor, gl.createBuffer(), mesh.colors, 3),
+    bary: uploadBuffer(gl, aBary, gl.createBuffer(), mesh.bary, 3),
+    biome: uploadBuffer(gl, aBiome, gl.createBuffer(), mesh.biomes, 1),
+    edge: uploadBuffer(gl, aEdge, gl.createBuffer(), mesh.edges, 1),
+    center: uploadBuffer(gl, aCellCenter, gl.createBuffer(), mesh.centers, 2)
+  };
+
+  const mapleModel = await loadMapleModel();
+
+  const treeVS = `
+precision mediump float;
+attribute vec3 aPosition;
+attribute vec3 aNormal;
+attribute vec3 aColor;
+uniform mat4 uViewProj;
+uniform vec3 uLightDir;
+varying vec3 vColor;
+varying float vLight;
+void main() {
+  vec3 n = normalize(aNormal);
+  vLight = max(dot(n, normalize(uLightDir)), 0.1);
+  vColor = aColor;
+  gl_Position = uViewProj * vec4(aPosition, 1.0);
+}
+`;
+
+  const treeFS = `
+precision mediump float;
+varying vec3 vColor;
+varying float vLight;
+void main() {
+  gl_FragColor = vec4(vColor * (0.35 + 0.65 * vLight), 1.0);
+}
+`;
+
+  const treeMesh = buildTreeMesh(mesh.cells, mesh.hexRadius, mapleModel);
+  treeVertexCount = treeMesh.count;
+
+  if (treeVertexCount > 0) {
+    treeProgram = createProgram(gl, treeVS, treeFS);
+    if (treeProgram) {
+      gl.useProgram(treeProgram);
+      treeViewProjLoc = gl.getUniformLocation(treeProgram, "uViewProj");
+      treeLightDirLoc = gl.getUniformLocation(treeProgram, "uLightDir");
+      treeAttribs = {
+        position: gl.getAttribLocation(treeProgram, "aPosition"),
+        normal: gl.getAttribLocation(treeProgram, "aNormal"),
+        color: gl.getAttribLocation(treeProgram, "aColor")
+      };
+      treeBuffers = {
+        position: uploadBuffer(gl, treeAttribs.position, gl.createBuffer(), treeMesh.positions, 3),
+        normal: uploadBuffer(gl, treeAttribs.normal, gl.createBuffer(), treeMesh.normals, 3),
+        color: uploadBuffer(gl, treeAttribs.color, gl.createBuffer(), treeMesh.colors, 3)
+      };
+    } else {
+      treeVertexCount = 0;
+    }
+    gl.useProgram(program);
+  }
 
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
