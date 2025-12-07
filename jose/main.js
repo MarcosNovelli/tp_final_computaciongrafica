@@ -64,6 +64,32 @@ const HEIGHT_UNIT = 0.3;
 const GRID_RADIUS = 8;
 
 /**
+ * Densidad de árboles en el bioma Grass (porcentaje de celdas que tendrán un árbol).
+ * 
+ * Valor entre 0.0 y 1.0:
+ * - 0.0 = ningún árbol
+ * - 1.0 = un árbol en cada celda
+ * - 0.08 = aproximadamente 8% de las celdas tendrán un árbol
+ */
+const TREE_DENSITY = 0.08;
+
+/**
+ * Color para la copa de los árboles (verde oscuro estilo low-poly).
+ * 
+ * Se aplica como uniform u_color al fragment shader.
+ * Formato: [R, G, B] con valores de 0.0 a 1.0
+ */
+const TREE_CROWN_COLOR = [0.1, 0.35, 0.1]; // Verde oscuro para la copa
+
+/**
+ * Color para el tronco de los árboles (marrón oscuro como en la imagen de referencia).
+ * 
+ * Se aplica como uniform u_color al fragment shader.
+ * Formato: [R, G, B] con valores de 0.0 a 1.0
+ */
+const TREE_TRUNK_COLOR = [0.35, 0.2, 0.12]; // Marrón oscuro para el tronco
+
+/**
  * Radio del hexágono en unidades del mundo (distancia del centro a un vértice).
  * 
  * IMPORTANTE: Esta es la ÚNICA constante que define el tamaño físico del hexágono.
@@ -865,11 +891,20 @@ function createCells(biome) {
         color = generateColor(baseColor, colorVariance);
       }
       
+      // Calcular la posición (x, z) del centro del hexágono en el mundo
+      // Esto viene directamente de la función hexToPixel3D (equivalente a axialToWorld)
+      // Se almacena en la celda como worldX y worldZ para reutilización
+      // IMPORTANTE: hexToPixel3D retorna {x, y, z}, pero y siempre es 0 (plano XZ)
+      const pos = hexToPixel3D(q, r, HEX_RADIUS_WORLD);
+      
       cells.push({
         q: q,
         r: r,
+        worldX: pos.x,  // Posición X del centro del hexágono en el mundo (viene de hexToPixel3D)
+        worldZ: pos.z,  // Posición Z del centro del hexágono en el mundo (viene de hexToPixel3D)
         height: height,
-        color: color
+        color: color,
+        biome: biome  // Guardar referencia al bioma para filtrado
       });
     }
   }
@@ -1326,61 +1361,308 @@ function drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, heigh
  * @param {Array} cells - Array de celdas con formato { q, r, height, color }
  * @param {number} hexRadius - Radio del hexágono (debe ser HEX_RADIUS_WORLD para tesselado perfecto)
  */
-function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, hexRadius) {
+function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, hexRadius, viewMatrix, projectionMatrix) {
   // Limpia el canvas con color de fondo oscuro
   clearCanvas(gl, 0.1, 0.1, 0.15, 1.0);
   
   // Activa el programa de shaders (solo una vez para todos los prismas)
   gl.useProgram(program);
   
-  // Calcula el tamaño del terreno para ajustar la cámara
-  // El terreno tiene GRID_RADIUS hexágonos de radio
-  // Calcula el tamaño aproximado del terreno para ajustar la cámara
-  // El tamaño máximo es aproximadamente: GRID_RADIUS * HEX_RADIUS_WORLD * sqrt(3) * 2
-  // Esto estima el diámetro del hexágono más grande del terreno
-  const terrainSize = GRID_RADIUS * hexRadius * Math.sqrt(3) * 2;
-  const cameraDistance = terrainSize * 1.2; // Un poco más lejos para ver todo
+  // Si no se proporcionan las matrices, calcularlas automáticamente
+  let finalViewMatrix = viewMatrix;
+  let finalProjectionMatrix = projectionMatrix;
   
-  // Configuración de la cámara
-  // Posición de la cámara ajustada para ver el terreno completo
-  // Con GRID_RADIUS = 20, el terreno es mucho más grande, así que alejamos más la cámara
-  // Posición de la cámara: alejada y elevada para ver el terreno completo
-  const eye = [cameraDistance * 0.7, cameraDistance * 0.8, cameraDistance * 0.7];
-  // Centro de la escena: (0, 0, 0) - donde está el centro del terreno
-  const center = [0, 0, 0];
-  // Vector "arriba" de la cámara
-  const up = [0, 1, 0];
-  
-  // Crea la matriz de vista (cámara mirando al centro)
-  const viewMatrix = lookAt(eye, center, up);
-  
-  // Configuración de la proyección perspectiva
-  // FOV (field of view): 60 grados
-  // Aspect ratio: ancho / alto del canvas
-  const aspect = canvas.width / canvas.height;
-  // Plano cercano: objetos más cercanos a 0.1 no se ven
-  const near = 0.1;
-  // Plano lejano: objetos más lejanos a 100 no se ven
-  const far = 100.0;
-  
-  // Crea la matriz de proyección perspectiva
-  const projectionMatrix = perspective(60, aspect, near, far);
+  if (!finalViewMatrix || !finalProjectionMatrix) {
+    // Calcula el tamaño del terreno para ajustar la cámara
+    const terrainSize = GRID_RADIUS * hexRadius * Math.sqrt(3) * 2;
+    const cameraDistance = terrainSize * 1.2;
+    
+    const eye = [cameraDistance * 0.7, cameraDistance * 0.8, cameraDistance * 0.7];
+    const center = [0, 0, 0];
+    const up = [0, 1, 0];
+    
+    finalViewMatrix = lookAt(eye, center, up);
+    
+    const aspect = canvas.width / canvas.height;
+    finalProjectionMatrix = perspective(60, aspect, 0.1, 100.0);
+  }
   
   // Itera sobre cada celda de la grilla
   for (const cell of cells) {
-    // Convierte coordenadas hexagonales (q, r) a posición 3D en el plano XZ
-    // IMPORTANTE: hexRadius debe ser exactamente HEX_RADIUS_WORLD para garantizar
-    // que las posiciones de los centros coincidan con el tamaño real de los hexágonos
-    // La fórmula usa hexRadius directamente, que debe ser igual al radio usado en createHexagonPrismData
-    const { x, y, z } = hexToPixel3D(cell.q, cell.r, hexRadius);
+    // Usar directamente las posiciones almacenadas en la celda
+    // cell.worldX y cell.worldZ son el centro exacto del hexágono en el mundo
+    // Estos valores fueron calculados en createCells() usando hexToPixel3D()
+    const x = cell.worldX;
+    const z = cell.worldZ;
     
     // Dibuja el prisma en esa posición con la altura y color correspondientes
-    // - La altura se aplica mediante escala en Y en la matriz modelo
-    // - El color se pasa como uniform al fragment shader
-    drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, cell.height, cell.color, viewMatrix, projectionMatrix);
+    // Nota: y=0 porque la base del hexágono siempre está en el plano XZ
+    drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, 0, z, cell.height, cell.color, finalViewMatrix, finalProjectionMatrix);
   }
   
   console.log(`✓ Grilla 3D dibujada: ${cells.length} prismas con alturas variables`);
+}
+
+/**
+ * Dibuja un mesh genérico (árbol u otro objeto) usando índices (ELEMENT_ARRAY_BUFFER).
+ * 
+ * RESPONSABILIDAD:
+ * - Configurar los atributos del mesh (posiciones y normales)
+ * - Calcular y enviar la matriz normal (inversa transpuesta)
+ * - Configurar los uniforms (model, view, projection, normalMatrix, color)
+ * - Dibujar el mesh usando gl.drawElements con índices
+ * 
+ * Esta función se usa para renderizar objetos que usan índices (como árboles generados programáticamente),
+ * a diferencia de los hexágonos que usan gl.drawArrays.
+ * 
+ * ILUMINACIÓN:
+ * - Reutiliza los mismos shaders de iluminación Lambertiana que el terreno
+ * - Calcula la matriz normal para transformar las normales correctamente
+ * 
+ * @param {WebGLRenderingContext} gl - Contexto WebGL
+ * @param {WebGLProgram} program - Programa de shaders compilado
+ * @param {WebGLBuffer} positionBuffer - Buffer con las posiciones de los vértices
+ * @param {WebGLBuffer} normalBuffer - Buffer con las normales de los vértices
+ * @param {WebGLBuffer} indexBuffer - Buffer con los índices de los vértices
+ * @param {number} indexCount - Número de índices a dibujar
+ * @param {Float32Array} modelMatrix - Matriz modelo del objeto
+ * @param {Float32Array} viewMatrix - Matriz de vista (cámara)
+ * @param {Float32Array} projectionMatrix - Matriz de proyección
+ * @param {number[]} color - Color RGB del objeto [r, g, b] (valores 0.0 a 1.0)
+ * @param {number} [indexOffset] - Offset en bytes dentro del buffer de índices (opcional)
+ */
+function drawMesh(gl, program, positionBuffer, normalBuffer, indexBuffer, indexCount, modelMatrix, viewMatrix, projectionMatrix, color, indexOffset = 0) {
+  // Calcular la matriz normal (inversa transpuesta de la matriz modelo)
+  const normalMatrix = calculateNormalMatrix(modelMatrix);
+  
+  // Obtiene las ubicaciones de los uniforms en el shader
+  const modelLocation = gl.getUniformLocation(program, 'u_model');
+  const viewLocation = gl.getUniformLocation(program, 'u_view');
+  const projectionLocation = gl.getUniformLocation(program, 'u_projection');
+  const normalMatrixLocation = gl.getUniformLocation(program, 'u_normalMatrix');
+  const colorLocation = gl.getUniformLocation(program, 'u_color');
+  
+  // Configura las matrices en el shader
+  gl.uniformMatrix4fv(modelLocation, false, modelMatrix);
+  gl.uniformMatrix4fv(viewLocation, false, viewMatrix);
+  gl.uniformMatrix4fv(projectionLocation, false, projectionMatrix);
+  gl.uniformMatrix4fv(normalMatrixLocation, false, normalMatrix);
+  
+  // Configura el color del objeto
+  gl.uniform3f(colorLocation, color[0], color[1], color[2]);
+  
+  // Configura el atributo a_position para leer del buffer de posiciones
+  setupAttribute(gl, program, 'a_position', positionBuffer, 3);
+  
+  // Configura el atributo a_normal para leer del buffer de normales
+  setupAttribute(gl, program, 'a_normal', normalBuffer, 3);
+  
+  // Activa el buffer de índices (ELEMENT_ARRAY_BUFFER)
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+  
+  // Dibuja el mesh usando índices (gl.drawElements)
+  // indexOffset está en bytes, Uint16Array = 2 bytes por índice
+  gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, indexOffset);
+}
+
+/**
+ * Dibuja un árbol completo (tronco + copa) con colores diferentes.
+ * 
+ * @param {WebGLRenderingContext} gl - Contexto WebGL
+ * @param {WebGLProgram} program - Programa de shaders compilado
+ * @param {Object} treeMesh - Mesh del árbol con trunkIndexCount y crownIndexCount
+ * @param {Float32Array} modelMatrix - Matriz modelo del árbol
+ * @param {Float32Array} viewMatrix - Matriz de vista
+ * @param {Float32Array} projectionMatrix - Matriz de proyección
+ */
+function drawTree(gl, program, treeMesh, modelMatrix, viewMatrix, projectionMatrix) {
+  // Dibujar el tronco (marrón)
+  drawMesh(
+    gl, program,
+    treeMesh.positionBuffer,
+    treeMesh.normalBuffer,
+    treeMesh.indexBuffer,
+    treeMesh.trunkIndexCount,
+    modelMatrix,
+    viewMatrix,
+    projectionMatrix,
+    TREE_TRUNK_COLOR,
+    0 // Offset: empieza desde el inicio
+  );
+  
+  // Dibujar la copa (verde)
+  drawMesh(
+    gl, program,
+    treeMesh.positionBuffer,
+    treeMesh.normalBuffer,
+    treeMesh.indexBuffer,
+    treeMesh.crownIndexCount,
+    modelMatrix,
+    viewMatrix,
+    projectionMatrix,
+    TREE_CROWN_COLOR,
+    treeMesh.crownIndexOffset * 2 // Offset en bytes (Uint16Array = 2 bytes por índice)
+  );
+}
+
+/**
+ * Crea instancias de árboles distribuidas aleatoriamente sobre las celdas del bioma Grass.
+ * 
+ * RESPONSABILIDAD:
+ * - Filtrar solo las celdas que pertenecen al bioma Grass
+ * - Para cada celda de Grass, decidir aleatoriamente si debe tener un árbol según TREE_DENSITY
+ * - Usar directamente los datos almacenados en la celda (x, z, height)
+ * - Generar una matriz modelo para cada árbol con rotación y escala aleatorias
+ * - Retornar un array de instancias con sus matrices modelo
+ * 
+ * FILTRADO POR BIOMA:
+ * - IMPORTANTE: Solo genera árboles en celdas que pertenecen al bioma Grass
+ * - Cada celda tiene una propiedad `biome` que identifica a qué bioma pertenece
+ * - Esto evita generar árboles fuera del bioma o en biomas incorrectos
+ * 
+ * POSICIONAMIENTO:
+ * - IMPORTANTE: Cada árbol está perfectamente centrado en un hexágono
+ * - La posición (x, z) se usa directamente desde cell.x y cell.z (ya calculadas en createCells)
+ * - La altura en Y se calcula como la altura visual del hexágono (top del hex)
+ * - El árbol tiene su base del tronco en y=0 (en su sistema local)
+ * - Se traslada a y = visualHeight para que la base quede sobre la tapa del hexágono
+ * 
+ * VARIACIÓN:
+ * - Rotación aleatoria alrededor del eje Y (0 a 2π)
+ * - Escala aleatoria entre 0.9 y 1.1 para dar variedad
+ * 
+ * @param {Array} cells - Array de celdas con formato { q, r, worldX, worldZ, height, color, biome }
+ * @param {Object} targetBiome - Bioma objetivo para generar árboles (por defecto grassBiome)
+ * @returns {Array<{modelMatrix: Float32Array}>} Array de instancias de árboles
+ */
+function createTreeInstances(cells, targetBiome = grassBiome) {
+  const treeInstances = [];
+  let grassCellsCount = 0;
+  
+  // Recorrer todas las celdas del terreno
+  for (const cell of cells) {
+    // FILTRAR: Solo generar árboles en celdas del bioma objetivo (por defecto Grass)
+    // Esto evita generar árboles fuera del bioma o en biomas incorrectos
+    if (cell.biome !== targetBiome) {
+      continue; // Saltar celdas que no pertenecen al bioma objetivo
+    }
+    
+    grassCellsCount++;
+    
+    // Decidir aleatoriamente si esta celda debe tener un árbol
+    if (Math.random() >= TREE_DENSITY) {
+      continue; // No poner árbol en esta celda
+    }
+    
+    // ============================================================
+    // POSICIÓN DEL ÁRBOL: Usar directamente worldX y worldZ de la celda
+    // ============================================================
+    // cell.worldX y cell.worldZ son el centro exacto del hexágono en el mundo
+    // Estos valores fueron calculados en createCells() usando hexToPixel3D()
+    // Son exactamente las mismas coordenadas que se usan para dibujar el hexágono
+    // NO recalcular aquí para evitar discrepancias
+    // La geometría del árbol está centrada en el origen (x=0, z=0) en su sistema local
+    // Así que simplemente trasladamos el árbol a estas coordenadas
+    const posX = cell.worldX;  // Exactamente el centro del hexágono
+    const posZ = cell.worldZ;  // Exactamente el centro del hexágono
+    
+    // ============================================================
+    // JITTER OPCIONAL: Desactivado por ahora para centrado perfecto
+    // ============================================================
+    // Si quieres activar jitter más adelante, usar máximo 10-15% del radio
+    // const JITTER_RADIUS = HEX_RADIUS_WORLD * 0.1; // máximo 10% del radio
+    // const jitterAngle = Math.random() * Math.PI * 2.0;
+    // const jitterDistance = Math.random() * JITTER_RADIUS;
+    // const offsetX = Math.cos(jitterAngle) * jitterDistance;
+    // const offsetZ = Math.sin(jitterAngle) * jitterDistance;
+    // posX = posX + offsetX;
+    // posZ = posZ + offsetZ;
+    
+    // ============================================================
+    // ALTURA DEL ÁRBOL: Exactamente sobre la tapa del hexágono
+    // ============================================================
+    // La altura visual del hexágono es cell.height * HEIGHT_UNIT
+    // Esta es la altura de la tapa del hexágono (donde debe apoyarse el árbol)
+    // El árbol tiene su base del tronco en y=0 en su sistema local (createTreeMesh)
+    // Por lo tanto, posY = visualHeight coloca la base del tronco exactamente sobre la tapa
+    const visualHeight = cell.height * HEIGHT_UNIT;
+    const posY = visualHeight;
+    
+    // Validar que la altura sea válida (no negativa ni cero)
+    if (posY <= 0) {
+      console.warn(`Advertencia: Celda (${cell.q}, ${cell.r}) tiene altura ${cell.height}, visualHeight=${visualHeight}. Saltando árbol.`);
+      continue;
+    }
+    
+    // ============================================================
+    // TRANSFORMACIONES: Rotación y escala aleatorias
+    // ============================================================
+    // TEMPORAL: Desactivar rotación y escala para debuggear centrado
+    // Descomentar después de verificar que el centrado funciona
+    const rotationY = 0; // Math.random() * Math.PI * 2;
+    const scale = 1.0; // randomInRange(0.9, 1.1);
+    
+    // Versión con rotación/escala (descomentar cuando el centrado funcione):
+    // const rotationY = Math.random() * Math.PI * 2;
+    // const scale = randomInRange(0.9, 1.1);
+    
+    // ============================================================
+    // CONSTRUCCIÓN DE LA MATRIZ MODELO (igual que el hexágono)
+    // ============================================================
+    // IMPORTANTE: Construimos EXACTAMENTE igual que drawHexagonAt()
+    // El hexágono hace: translation * scale
+    // El árbol hace: translation * rotation * scale
+    // 
+    // PATRÓN DEL HEXÁGONO (línea 1296):
+    //   1. scaleMatrix = scaleMat4(...)
+    //   2. translationMatrix = translateMat4(x, 0, z)
+    //   3. modelMatrix = multiplyMat4(translationMatrix, scaleMatrix)
+    //      Resultado: translation * scale
+    //
+    // PATRÓN PARA EL ÁRBOL (mismo orden):
+    //   1. scaleMatrix = scaleMat4(...)
+    //   2. rotationMatrix = ...
+    //   3. localTransform = rotation * scale
+    //   4. translationMatrix = translateMat4(posX, posY, posZ)
+    //   5. modelMatrix = multiplyMat4(translationMatrix, localTransform)
+    //      Resultado: translation * rotation * scale
+    
+    // PASO 1: Crear matriz de escala (igual que el hexágono)
+    const scaleMatrix = scaleMat4(scale, scale, scale);
+    
+    // PASO 2: Crear matriz de rotación alrededor del eje Y
+    const cosR = Math.cos(rotationY);
+    const sinR = Math.sin(rotationY);
+    const rotationMatrix = new Float32Array([
+      cosR, 0, sinR, 0,
+      0, 1, 0, 0,
+      -sinR, 0, cosR, 0,
+      0, 0, 0, 1
+    ]);
+    
+    // PASO 3: Combinar rotación y escala (rotation * scale)
+    // Esto aplica primero la escala, luego la rotación, ambas alrededor del origen
+    const localTransform = multiplyMat4(rotationMatrix, scaleMatrix);
+    
+    // PASO 4: Crear matriz de traslación (igual que el hexágono)
+    // Esta traslación mueve el centro del árbol (origen local) a la posición final
+    const translationMatrix = translateMat4(posX, posY, posZ);
+    
+    // PASO 5: Combinar traslación con transformaciones locales (igual que el hexágono)
+    // translation * (rotation * scale) = translation * rotation * scale
+    const modelMatrix = multiplyMat4(translationMatrix, localTransform);
+    
+    // RESULTADO: El árbol está perfectamente centrado en (posX, posY, posZ)
+    // porque seguimos exactamente el mismo patrón que el hexágono
+    
+    treeInstances.push({
+      modelMatrix: modelMatrix
+    });
+  }
+  
+  console.log(`✓ ${treeInstances.length} árboles instanciados sobre ${grassCellsCount} celdas de Grass (de ${cells.length} totales, densidad: ${(TREE_DENSITY * 100).toFixed(1)}%)`);
+  
+  return treeInstances;
 }
 
 /**
@@ -1457,12 +1739,43 @@ function main() {
   const positionBuffer = createBuffer(gl, prismData.positions);
   const normalBuffer = createBuffer(gl, prismData.normals);
   
-  // Paso 7: Dibujar la grilla de prismas con alturas variables e iluminación
-  // Cada prisma se dibuja con su altura correspondiente usando escala en Y
-  // La iluminación Lambertiana se calcula en el fragment shader usando las normales
-  // IMPORTANTE: Pasamos HEX_RADIUS_WORLD a drawHexGrid para que hexToPixel3D use el mismo valor
-  // La cámara se ajusta automáticamente en drawHexGrid para ver el terreno completo
-  drawHexGrid(gl, program, positionBuffer, normalBuffer, webgl.canvas, cells, HEX_RADIUS_WORLD);
+  // Paso 7: Crear mesh del árbol programáticamente
+  // El árbol se genera en código (sin modelos externos)
+  // Está compuesto por un tronco hexagonal y una copa de 3 conos apilados
+  const treeMesh = createTreeMesh(gl);
+  
+  // Paso 8: Crear instancias de árboles distribuidas sobre el terreno
+  // Solo las celdas del bioma Grass pueden tener árboles
+  // La densidad está controlada por TREE_DENSITY (8% por defecto)
+  // Las posiciones (x, z) se usan directamente de las celdas (ya calculadas)
+  const treeInstances = createTreeInstances(cells, grassBiome);
+  
+  // Paso 9: Preparar matrices de vista y proyección (compartidas para terreno y árboles)
+  // Estas matrices se calculan una vez y se usan tanto para el terreno como para los árboles
+  const terrainSize = GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3) * 2;
+  const cameraDistance = terrainSize * 1.2;
+  const eye = [cameraDistance * 0.7, cameraDistance * 0.8, cameraDistance * 0.7];
+  const center = [0, 0, 0];
+  const up = [0, 1, 0];
+  const aspect = webgl.canvas.width / webgl.canvas.height;
+  const viewMatrix = lookAt(eye, center, up);
+  const projectionMatrix = perspective(60, aspect, 0.1, 100.0);
+  
+  // Paso 10: Dibujar el terreno primero (hexágonos)
+  // El terreno se dibuja antes que los árboles para que los árboles queden encima visualmente
+  drawHexGrid(gl, program, positionBuffer, normalBuffer, webgl.canvas, cells, HEX_RADIUS_WORLD, viewMatrix, projectionMatrix);
+  
+  // Paso 11: Dibujar todos los árboles encima del terreno
+  // Cada árbol se renderiza usando su matriz modelo individual (con rotación y escala aleatorias)
+  // Todos los árboles comparten el mismo mesh (treeMesh) pero tienen diferentes transformaciones
+  // Los árboles se dibujan con colores diferentes para tronco (marrón) y copa (verde)
+  if (treeInstances.length > 0) {
+    for (const tree of treeInstances) {
+      // drawTree dibuja tanto el tronco como la copa con sus colores respectivos
+      drawTree(gl, program, treeMesh, tree.modelMatrix, viewMatrix, projectionMatrix);
+    }
+    console.log(`✓ ${treeInstances.length} árboles renderizados (tronco marrón + copa verde)`);
+  }
   
   console.log('✓ ¡Aplicación iniciada correctamente!');
 }

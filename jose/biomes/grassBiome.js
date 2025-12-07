@@ -98,10 +98,10 @@ function computeGrassColor(height, biome) {
  * - Áreas más altas se ven ligeramente más claras
  */
 const grassBiome = {
-  baseColor: [0.33, 0.61, 0.23],  // Verde principal suave para estilo low-poly
+  baseColor: [0.5, 0.8, 0.3],     // Verde más brillante/lime green como en la imagen de referencia
   minHeight: 1,                    // Altura mínima
   maxHeight: 3,                    // Altura máxima
-  colorVariance: 0.05,             // Variación de color sutil
+  colorVariance: 0.08,             // Variación de color un poco más visible
   computeColor: computeGrassColor  // Función específica para calcular colores
 };
 
