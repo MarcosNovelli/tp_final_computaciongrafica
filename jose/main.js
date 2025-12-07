@@ -74,6 +74,16 @@ const GRID_RADIUS = 8;
 const TREE_DENSITY = 0.08;
 
 /**
+ * Densidad de ovejas en el bioma Grass (porcentaje de celdas que tendrán una oveja).
+ * 
+ * Valor entre 0.0 y 1.0:
+ * - 0.0 = ninguna oveja
+ * - 1.0 = una oveja en cada celda
+ * - 0.04 = aproximadamente 4% de las celdas tendrán una oveja
+ */
+const SHEEP_DENSITY = 0.04;
+
+/**
  * Color para la copa de los árboles (verde oscuro estilo low-poly).
  * 
  * Se aplica como uniform u_color al fragment shader.
@@ -820,40 +830,82 @@ function createCells(biome) {
   const { baseColor, minHeight, maxHeight, colorVariance } = biome;
   
   // Inicializa el generador de ruido Simplex
-  // Verifica si la librería está disponible, si no usa un fallback simple
-  let noiseGenerator = null;
+  // Inicializar SimplexNoise para generar alturas suaves del terreno
+  // IMPORTANTE: SimplexNoise debe estar disponible globalmente después de cargar el script del CDN
+  // La versión 3.0.1 puede exponer la API de diferentes formas dependiendo del build del CDN
+  let noise2D = null;
   
-  // Verificar si SimplexNoise está disponible en el contexto global
-  if (typeof window !== 'undefined' && window.SimplexNoise) {
-    try {
-      noiseGenerator = new window.SimplexNoise();
-      console.log('✓ SimplexNoise inicializado correctamente');
-    } catch (e) {
-      console.warn('Error al inicializar SimplexNoise:', e);
-      noiseGenerator = null;
+  try {
+    // Verificar disponibilidad de SimplexNoise en diferentes ubicaciones posibles
+    let SimplexNoiseModule = null;
+    
+    // Opción 1: window.SimplexNoise (más común desde CDN UMD)
+    if (typeof window !== 'undefined' && window.SimplexNoise) {
+      SimplexNoiseModule = window.SimplexNoise;
     }
-  } else if (typeof SimplexNoise !== 'undefined') {
-    try {
-      noiseGenerator = new SimplexNoise();
-      console.log('✓ SimplexNoise inicializado correctamente');
-    } catch (e) {
-      console.warn('Error al inicializar SimplexNoise:', e);
-      noiseGenerator = null;
+    // Opción 2: SimplexNoise global (sin window)
+    else if (typeof SimplexNoise !== 'undefined') {
+      SimplexNoiseModule = SimplexNoise;
     }
-  }
-  
-  // Si no hay generador de ruido, creamos un fallback simple basado en una función hash
-  if (!noiseGenerator) {
-    console.warn('SimplexNoise no disponible, usando ruido simple basado en hash');
-    // Fallback: función hash simple para ruido determinístico
-    noiseGenerator = {
-      noise2D: function(x, y) {
-        // Función hash simple para ruido determinístico
-        const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-        return (n - Math.floor(n)) * 2 - 1; // Normaliza a [-1, 1]
+    // Opción 3: window.createNoise2D directamente (si está expuesto)
+    else if (typeof window !== 'undefined' && typeof window.createNoise2D === 'function') {
+      noise2D = window.createNoise2D();
+      console.log('✓ SimplexNoise cargado y funcionando (createNoise2D directo en window)');
+    }
+    
+    // Si encontramos el módulo, crear la función de ruido
+    if (SimplexNoiseModule && !noise2D) {
+      // API nueva (v3.x): createNoise2D()
+      if (typeof SimplexNoiseModule.createNoise2D === 'function') {
+        noise2D = SimplexNoiseModule.createNoise2D();
+        console.log('✓ SimplexNoise cargado y funcionando (API v3.x: createNoise2D)');
       }
-    };
+      // API antigua (v2.x): new SimplexNoise()
+      else if (typeof SimplexNoiseModule === 'function') {
+        const simplex = new SimplexNoiseModule();
+        noise2D = simplex.noise2D.bind(simplex);
+        console.log('✓ SimplexNoise cargado y funcionando (API v2.x: constructor)');
+      }
+      else {
+        throw new Error('SimplexNoise encontrado pero sin API reconocida (ni createNoise2D ni constructor)');
+      }
+    }
+    
+    // Verificar que tenemos una función de ruido válida
+    if (!noise2D || typeof noise2D !== 'function') {
+      throw new Error('No se pudo crear la función noise2D. SimplexNoise podría no estar cargado correctamente.');
+    }
+    
+    // Probar que la función funciona correctamente con una llamada de prueba
+    const testValue = noise2D(0, 0);
+    if (typeof testValue !== 'number' || isNaN(testValue) || !isFinite(testValue)) {
+      throw new Error('noise2D devolvió un valor inválido: ' + testValue);
+    }
+    
+    console.log(`✓ SimplexNoise verificado: testValue = ${testValue.toFixed(6)} (debe estar entre -1 y 1)`);
+    
+  } catch (error) {
+    console.error('❌ Error crítico al inicializar SimplexNoise:', error);
+    console.error('');
+    console.error('DIAGNÓSTICO:');
+    console.error('  - window existe:', typeof window !== 'undefined');
+    console.error('  - window.SimplexNoise existe:', typeof window !== 'undefined' && typeof window.SimplexNoise !== 'undefined');
+    console.error('  - SimplexNoise global existe:', typeof SimplexNoise !== 'undefined');
+    console.error('');
+    console.error('SOLUCIÓN:');
+    console.error('  1. Verifica que index.html carga: <script src="https://cdn.jsdelivr.net/npm/simplex-noise@3.0.1/simplex-noise.js"></script>');
+    console.error('  2. Verifica que el script se carga ANTES de main.js');
+    console.error('  3. Abre la consola del navegador y escribe: window.SimplexNoise');
+    console.error('     Debería mostrar un objeto o función, no "undefined"');
+    console.error('');
+    throw new Error('FALLÓ la inicialización de SimplexNoise. ' + error.message);
   }
+  
+  // Crear wrapper con la interfaz que espera generateHeight
+  // noise2D ya es una función que acepta (x, y) y devuelve un número entre -1 y 1
+  const noiseGenerator = {
+    noise2D: noise2D
+  };
   
   // Escala del ruido: controla qué tan suave o rugoso es el terreno
   // Valores más pequeños (ej: 0.1-0.2) = terreno más suave, cambios graduales
@@ -1666,6 +1718,167 @@ function createTreeInstances(cells, targetBiome = grassBiome) {
 }
 
 /**
+ * Crea instancias de ovejas distribuidas aleatoriamente sobre las celdas del bioma Grass.
+ * 
+ * RESPONSABILIDAD:
+ * - Filtrar solo las celdas que pertenecen al bioma Grass
+ * - Para cada celda de Grass, decidir aleatoriamente si debe tener una oveja según SHEEP_DENSITY
+ * - Usar directamente los datos almacenados en la celda (worldX, worldZ, height)
+ * - Generar una matriz modelo para cada oveja con rotación y escala aleatorias
+ * - Retornar un array de instancias con sus matrices modelo
+ * 
+ * FILTRADO POR BIOMA:
+ * - IMPORTANTE: Solo genera ovejas en celdas que pertenecen al bioma Grass
+ * - Cada celda tiene una propiedad `biome` que identifica a qué bioma pertenece
+ * 
+ * POSICIONAMIENTO:
+ * - Cada oveja está perfectamente centrada en un hexágono
+ * - La posición (x, z) se usa directamente desde cell.worldX y cell.worldZ (centro del hexágono)
+ * - La altura en Y se calcula como la altura visual del hexágono (top del hex)
+ * - La oveja tiene su base en y=0 (en su sistema local del modelo OBJ)
+ * - Se traslada a y = visualHeight para que la base quede sobre la tapa del hexágono
+ * 
+ * VARIACIÓN:
+ * - Rotación aleatoria alrededor del eje Y (0 a 2π)
+ * - Escala aleatoria entre 0.8 y 1.2 para dar variedad de tamaño
+ * 
+ * @param {Array} cells - Array de celdas con formato { q, r, worldX, worldZ, height, color, biome }
+ * @param {Object} targetBiome - Bioma objetivo para generar ovejas (por defecto grassBiome)
+ * @returns {Array<{modelMatrix: Float32Array}>} Array de instancias de ovejas
+ */
+function createSheepInstances(cells, targetBiome = grassBiome) {
+  const sheepInstances = [];
+  let grassCellsCount = 0;
+  
+  // Recorrer todas las celdas del terreno
+  for (const cell of cells) {
+    // FILTRAR: Solo generar ovejas en celdas del bioma objetivo (por defecto Grass)
+    // Esto evita generar ovejas fuera del bioma o en biomas incorrectos
+    if (cell.biome !== targetBiome) {
+      continue; // Saltar celdas que no pertenecen al bioma objetivo
+    }
+    
+    grassCellsCount++;
+    
+    // Decidir aleatoriamente si esta celda debe tener una oveja
+    if (Math.random() >= SHEEP_DENSITY) {
+      continue; // No poner oveja en esta celda
+    }
+    
+    // ============================================================
+    // POSICIÓN DE LA OVEJA: Usar directamente worldX y worldZ de la celda
+    // ============================================================
+    // cell.worldX y cell.worldZ son el centro exacto del hexágono en el mundo
+    // Estos valores fueron calculados en createCells() usando hexToPixel3D()
+    // Son exactamente las mismas coordenadas que se usan para dibujar el hexágono
+    // NO recalcular aquí para evitar discrepancias
+    // La geometría de la oveja está centrada en el origen (x=0, z=0) en su sistema local
+    // Así que simplemente trasladamos la oveja a estas coordenadas
+    const posX = cell.worldX;  // Exactamente el centro del hexágono
+    const posZ = cell.worldZ;  // Exactamente el centro del hexágono
+    
+    // ============================================================
+    // JITTER OPCIONAL: Desactivado por ahora para centrado perfecto
+    // ============================================================
+    // Si quieres activar jitter más adelante, usar máximo 10-15% del radio
+    // const JITTER_RADIUS = HEX_RADIUS_WORLD * 0.1; // máximo 10% del radio
+    // const jitterAngle = Math.random() * Math.PI * 2.0;
+    // const jitterDistance = Math.random() * JITTER_RADIUS;
+    // const offsetX = Math.cos(jitterAngle) * jitterDistance;
+    // const offsetZ = Math.sin(jitterAngle) * jitterDistance;
+    // posX = posX + offsetX;
+    // posZ = posZ + offsetZ;
+    
+    // ============================================================
+    // ALTURA DE LA OVEJA: Exactamente sobre la tapa del hexágono
+    // ============================================================
+    // La altura visual del hexágono es cell.height * HEIGHT_UNIT
+    // Esta es la altura de la tapa del hexágono (donde debe apoyarse la oveja)
+    // El modelo OBJ tiene su base en y=0 en su sistema local
+    // Por lo tanto, posY = visualHeight coloca la base de la oveja exactamente sobre la tapa
+    const visualHeight = cell.height * HEIGHT_UNIT;
+    const posY = visualHeight;
+    
+    // Validar que la altura sea válida (no negativa ni cero)
+    if (posY <= 0) {
+      console.warn(`Advertencia: Celda (${cell.q}, ${cell.r}) tiene altura ${cell.height}, visualHeight=${visualHeight}. Saltando oveja.`);
+      continue;
+    }
+    
+    // ============================================================
+    // TRANSFORMACIONES: Rotación y escala aleatorias
+    // ============================================================
+    // Rotación desactivada (0) para que todas las ovejas miren en la misma dirección
+    // Esto garantiza el centrado perfecto
+    const rotationY = 0;
+    
+    // Escala uniforme (mantener en 1.0 para tamaño consistente, o cambiar a escala aleatoria para variedad)
+    // Para cambiar el tamaño de las ovejas, modifica el valor de scale aquí:
+    const scale = 1.3; // Tamaño uniforme (todas las ovejas del mismo tamaño)
+    
+    // OPCIÓN: Si quieres variedad de tamaños, descomenta esta línea y comenta la anterior:
+    // const scale = randomInRange(1.2, 1.6); // Ovejas con tamaño aleatorio entre 1.2x y 1.6x
+    
+    // ============================================================
+    // CONSTRUCCIÓN DE LA MATRIZ MODELO (igual que el hexágono y árbol)
+    // ============================================================
+    // IMPORTANTE: Construimos EXACTAMENTE igual que drawHexagonAt()
+    // El hexágono hace: translation * scale
+    // La oveja hace: translation * rotation * scale
+    // 
+    // PATRÓN DEL HEXÁGONO (línea 1296):
+    //   1. scaleMatrix = scaleMat4(...)
+    //   2. translationMatrix = translateMat4(x, 0, z)
+    //   3. modelMatrix = multiplyMat4(translationMatrix, scaleMatrix)
+    //      Resultado: translation * scale
+    //
+    // PATRÓN PARA LA OVEJA (mismo orden):
+    //   1. scaleMatrix = scaleMat4(...)
+    //   2. rotationMatrix = ...
+    //   3. localTransform = rotation * scale
+    //   4. translationMatrix = translateMat4(posX, posY, posZ)
+    //   5. modelMatrix = multiplyMat4(translationMatrix, localTransform)
+    //      Resultado: translation * rotation * scale
+    
+    // PASO 1: Crear matriz de escala (igual que el hexágono)
+    const scaleMatrix = scaleMat4(scale, scale, scale);
+    
+    // PASO 2: Crear matriz de rotación alrededor del eje Y
+    const cosR = Math.cos(rotationY);
+    const sinR = Math.sin(rotationY);
+    const rotationMatrix = new Float32Array([
+      cosR, 0, sinR, 0,
+      0, 1, 0, 0,
+      -sinR, 0, cosR, 0,
+      0, 0, 0, 1
+    ]);
+    
+    // PASO 3: Combinar rotación y escala (rotation * scale)
+    // Esto aplica primero la escala, luego la rotación, ambas alrededor del origen
+    const localTransform = multiplyMat4(rotationMatrix, scaleMatrix);
+    
+    // PASO 4: Crear matriz de traslación (igual que el hexágono)
+    // Esta traslación mueve el centro de la oveja (origen local) a la posición final
+    const translationMatrix = translateMat4(posX, posY, posZ);
+    
+    // PASO 5: Combinar traslación con transformaciones locales (igual que el hexágono)
+    // translation * (rotation * scale) = translation * rotation * scale
+    const modelMatrix = multiplyMat4(translationMatrix, localTransform);
+    
+    // RESULTADO: La oveja está perfectamente centrada en (posX, posY, posZ)
+    // porque seguimos exactamente el mismo patrón que el hexágono y el árbol
+    
+    sheepInstances.push({
+      modelMatrix: modelMatrix
+    });
+  }
+  
+  console.log(`✓ ${sheepInstances.length} ovejas instanciadas sobre ${grassCellsCount} celdas de Grass (de ${cells.length} totales, densidad: ${(SHEEP_DENSITY * 100).toFixed(1)}%)`);
+  
+  return sheepInstances;
+}
+
+/**
  * ============================================================
  * FUNCIÓN PRINCIPAL
  * ============================================================
@@ -1688,7 +1901,7 @@ function createTreeInstances(cells, targetBiome = grassBiome) {
  * 4. Crea el buffer y carga los datos
  * 5. Dibuja la grilla de prismas (cada uno en su posición usando matrices)
  */
-function main() {
+async function main() {
   console.log('Iniciando aplicación WebGL...');
   
   // Paso 1: Inicializar WebGL (función de render/gl.js)
@@ -1744,14 +1957,39 @@ function main() {
   // Está compuesto por un tronco hexagonal y una copa de 3 conos apilados
   const treeMesh = createTreeMesh(gl);
   
-  // Paso 8: Crear instancias de árboles distribuidas sobre el terreno
+  // Paso 8: Cargar modelo OBJ de oveja con su material MTL
+  // El modelo se carga desde objects/sheep.obj y objects/sheep.mtl
+  // loadObjWithMtl parsea el OBJ separado por materiales (White=lana, Black=cabeza/patas)
+  // Retorna buffers WebGL separados para cada material
+  let sheepMesh = null;
+  
+  try {
+    const sheepData = await loadObjWithMtl(gl, "objects/Sheep.obj", "objects/Sheep.mtl");
+    sheepMesh = {
+      white: sheepData.white,  // Lana (blanco)
+      black: sheepData.black   // Cabeza y patas (gris oscuro)
+    };
+    console.log(`✓ Modelo de oveja cargado: White=${sheepData.white.indexCount / 3} triángulos, Black=${sheepData.black.indexCount / 3} triángulos`);
+  } catch (error) {
+    console.warn(`Advertencia: No se pudo cargar el modelo de oveja: ${error.message}`);
+    console.warn('  Continuando sin ovejas...');
+  }
+  
+  // Paso 9: Crear instancias de árboles distribuidas sobre el terreno
   // Solo las celdas del bioma Grass pueden tener árboles
   // La densidad está controlada por TREE_DENSITY (8% por defecto)
   // Las posiciones (x, z) se usan directamente de las celdas (ya calculadas)
   const treeInstances = createTreeInstances(cells, grassBiome);
   
-  // Paso 9: Preparar matrices de vista y proyección (compartidas para terreno y árboles)
-  // Estas matrices se calculan una vez y se usan tanto para el terreno como para los árboles
+  // Paso 10: Crear instancias de ovejas distribuidas sobre el terreno
+  // Solo las celdas del bioma Grass pueden tener ovejas
+  // La densidad está controlada por SHEEP_DENSITY (4% por defecto)
+  // Las posiciones (x, z) se usan directamente de las celdas (ya calculadas)
+  // Cada oveja está perfectamente centrada en un hexágono usando cell.worldX y cell.worldZ
+  const sheepInstances = createSheepInstances(cells, grassBiome);
+  
+  // Paso 11: Preparar matrices de vista y proyección (compartidas para terreno, árboles y ovejas)
+  // Estas matrices se calculan una vez y se usan para todos los objetos
   const terrainSize = GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3) * 2;
   const cameraDistance = terrainSize * 1.2;
   const eye = [cameraDistance * 0.7, cameraDistance * 0.8, cameraDistance * 0.7];
@@ -1761,11 +1999,11 @@ function main() {
   const viewMatrix = lookAt(eye, center, up);
   const projectionMatrix = perspective(60, aspect, 0.1, 100.0);
   
-  // Paso 10: Dibujar el terreno primero (hexágonos)
-  // El terreno se dibuja antes que los árboles para que los árboles queden encima visualmente
+  // Paso 12: Dibujar el terreno primero (hexágonos)
+  // El terreno se dibuja antes que los objetos para que queden encima visualmente
   drawHexGrid(gl, program, positionBuffer, normalBuffer, webgl.canvas, cells, HEX_RADIUS_WORLD, viewMatrix, projectionMatrix);
   
-  // Paso 11: Dibujar todos los árboles encima del terreno
+  // Paso 13: Dibujar todos los árboles encima del terreno
   // Cada árbol se renderiza usando su matriz modelo individual (con rotación y escala aleatorias)
   // Todos los árboles comparten el mismo mesh (treeMesh) pero tienen diferentes transformaciones
   // Los árboles se dibujan con colores diferentes para tronco (marrón) y copa (verde)
@@ -1777,11 +2015,51 @@ function main() {
     console.log(`✓ ${treeInstances.length} árboles renderizados (tronco marrón + copa verde)`);
   }
   
+  // Paso 14: Dibujar todas las ovejas encima del terreno
+  // Cada oveja se renderiza usando su matriz modelo individual (con rotación y escala aleatorias)
+  // Todas las ovejas comparten el mismo mesh (sheepMesh) pero tienen diferentes transformaciones
+  // Las ovejas se dibujan con colores diferentes: lana blanca y cabeza/patas gris oscuro
+  // Solo dibuja si el modelo se cargó correctamente
+  if (sheepMesh && sheepInstances.length > 0) {
+    const whiteColor = [0.95, 0.95, 0.95]; // Blanco para la lana
+    const blackColor = [0.2, 0.2, 0.2];    // Gris oscuro para cabeza y patas
+    
+    for (const sheep of sheepInstances) {
+      // Dibujar la lana (parte White) en blanco
+      drawMesh(
+        gl, program,
+        sheepMesh.white.positionBuffer,
+        sheepMesh.white.normalBuffer,
+        sheepMesh.white.indexBuffer,
+        sheepMesh.white.indexCount,
+        sheep.modelMatrix,
+        viewMatrix,
+        projectionMatrix,
+        whiteColor
+      );
+      
+      // Dibujar la cabeza y patas (parte Black) en gris oscuro
+      drawMesh(
+        gl, program,
+        sheepMesh.black.positionBuffer,
+        sheepMesh.black.normalBuffer,
+        sheepMesh.black.indexBuffer,
+        sheepMesh.black.indexCount,
+        sheep.modelMatrix,
+        viewMatrix,
+        projectionMatrix,
+        blackColor
+      );
+    }
+    console.log(`✓ ${sheepInstances.length} ovejas renderizadas (lana blanca + cabeza/patas gris oscuro)`);
+  }
+  
   console.log('✓ ¡Aplicación iniciada correctamente!');
 }
 
 // Ejecuta la función principal cuando la página y todos los scripts están cargados
-// Espera a que window.onload para asegurar que todos los scripts (incluyendo biomas) estén cargados
+// Espera a que window.onload para asegurar que todos los scripts (incluyendo SimplexNoise y biomas) estén cargados
+// El script de SimplexNoise se carga ANTES de main.js, por lo que estará disponible cuando main() se ejecute
 if (document.readyState === 'loading') {
   window.addEventListener('load', main);
 } else {

@@ -29,9 +29,15 @@
   <canvas id="glCanvas" width="800" height="600"></canvas>
 
   <!-- Librería de ruido Simplex para generar alturas suaves -->
-  <script src="https://cdn.jsdelivr.net/npm/simplex-noise@3.0.1/simplex-noise.js"></script>
+  <!-- IMPORTANTE: Usamos simplex-noise 2.4.0 porque expone SimplexNoise globalmente -->
+  <!-- La versión 3.0.1 del CDN usa ES modules y no funciona directamente con <script> tags -->
+  <!-- El código en main.js es compatible con ambas versiones (API 2.x y 3.x) -->
+  <!-- Esta es la librería REAL SimplexNoise, NO es un fallback -->
+  <script src="https://cdn.jsdelivr.net/npm/simplex-noise@2.4.0/simplex-noise.js"></script>
   <!-- Importante: cargar gl.js ANTES de main.js para que las funciones estén disponibles -->
   <script src="render/gl.js"></script>
+  <!-- Cargar loader de modelos OBJ/MTL -->
+  <script src="loader/simpleObjMtlLoader.js"></script>
   <!-- Cargar módulo para generar árboles low-poly programáticamente -->
   <script src="objects/tree.js"></script>
   <!-- Cargar main.js primero para tener funciones auxiliares (randomInRange, clamp01, generateColor) -->
