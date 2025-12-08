@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title id="pageTitle">Jose Raytracing</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: sans-serif;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui">
+        <h1 id="biomeTitle" style="margin: 0; font-size: 18px;">Raytracing Loader...</h1>
+        <p style="margin: 5px 0 0 0; font-size: 12px;">Rendering with Signed Distance Fields</p>
+    </div>
+    <canvas id="glCanvas"></canvas>
+
+    <!-- External Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+    <!-- Simplex Noise CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/simplex-noise@2.4.0/simplex-noise.js"></script>
+
+    <!-- Biomes -->
+    <script src="biomes/grassBiome.js"></script>
+    <script src="biomes/forestBiome.js"></script>
+    <script src="biomes/rockBiome.js"></script>
+    <script src="biomes/clayBiome.js"></script>
+    <script src="biomes/desertBiome.js"></script>
+
+    <!-- Utils -->
+    <script src="render/gl.js"></script>
+
+    <!-- Main Raytracer -->
+    <script src="main.js"></script>
+</body>
+
+</html>

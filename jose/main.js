@@ -188,17 +188,17 @@ const HEX_RADIUS_WORLD = 0.5;
  */
 function multiplyMat4(a, b) {
   const out = new Float32Array(16);
-  
+
   for (let i = 0; i < 4; i++) {
     for (let j = 0; j < 4; j++) {
-      out[i * 4 + j] = 
+      out[i * 4 + j] =
         a[i * 4 + 0] * b[0 * 4 + j] +
         a[i * 4 + 1] * b[1 * 4 + j] +
         a[i * 4 + 2] * b[2 * 4 + j] +
         a[i * 4 + 3] * b[3 * 4 + j];
     }
   }
-  
+
   return out;
 }
 
@@ -225,16 +225,16 @@ function identityMat4() {
 function perspective(fov, aspect, near, far) {
   const f = 1.0 / Math.tan(fov * Math.PI / 360.0); // Convertir FOV a radianes y calcular cotangente
   const rangeInv = 1.0 / (near - far);
-  
+
   const out = new Float32Array(16);
-  
+
   out[0] = f / aspect;
   out[5] = f;
   out[10] = (near + far) * rangeInv;
   out[11] = -1;
   out[14] = near * far * rangeInv * 2;
   out[15] = 0;
-  
+
   return out;
 }
 
@@ -280,36 +280,36 @@ function lookAt(eye, center, up) {
     center[1] - eye[1],
     center[2] - eye[2]
   ]);
-  
+
   // Vector right (perpendicular a forward y up)
   const s = normalizeVec3(crossVec3(f, up));
-  
+
   // Vector up corregido (perpendicular a forward y right)
   const u = crossVec3(s, f);
-  
+
   // Crear matriz de vista (view matrix)
   const out = new Float32Array(16);
-  
+
   out[0] = s[0];
   out[1] = u[0];
   out[2] = -f[0];
   out[3] = 0;
-  
+
   out[4] = s[1];
   out[5] = u[1];
   out[6] = -f[1];
   out[7] = 0;
-  
+
   out[8] = s[2];
   out[9] = u[2];
   out[10] = -f[2];
   out[11] = 0;
-  
+
   out[12] = -(s[0] * eye[0] + s[1] * eye[1] + s[2] * eye[2]);
   out[13] = -(u[0] * eye[0] + u[1] * eye[1] + u[2] * eye[2]);
   out[14] = f[0] * eye[0] + f[1] * eye[1] + f[2] * eye[2];
   out[15] = 1;
-  
+
   return out;
 }
 
@@ -374,6 +374,7 @@ const fragmentShaderSource = `
   precision mediump float;
   
   uniform vec3 u_color;           // Color RGB del hexágono (pasado desde la aplicación)
+  uniform float u_alpha;           // Opacidad (por defecto 1.0)
   uniform float uIsWater;          // Bandera: 1.0 si es agua, 0.0 si es terreno
   uniform vec3 uCameraPosition;    // Posición de la cámara en espacio del mundo
   
@@ -396,64 +397,57 @@ const fragmentShaderSource = `
     vec3 V = normalize(uCameraPosition - vWorldPosition);
     
     // MATERIAL ESPECIAL PARA AGUA:
-    // Cuando uIsWater > 0.5, el fragmento es parte de una celda de agua
-    // El agua tiene una iluminación diferente con reflejos especulares sutiles
+    // Realzamos el efecto de agua con reflejo de "cielo" fake y Fresnel
     if (uIsWater > 0.5) {
-      // ILUMINACIÓN PARA AGUA:
-      // El color base del agua debe ser claramente visible
-      // Reflejos especulares sutiles que no oculten el color
-      
-      // Color base del agua (pasado desde el CPU, puede variar según el bioma)
       vec3 base = u_color;
+      float NdotL = max(dot(N, L), 0.0);
       
-      // Iluminación difusa más conservadora para que el color sea visible
-      // Calculamos el producto punto entre la normal y la dirección de la luz
-      float lambert = max(dot(N, L), 0.0);
-      // Aplicamos una transformación moderada: 40% de brillo base + 50% del lambert
-      // Esto permite que el color base del agua sea claramente visible
-      lambert = 0.4 + lambert * 0.5;
+      // Iluminación difusa suave
+      vec3 diffuse = base * (0.5 + NdotL * 0.5);
       
-      // Cálculo del reflejo especular (Phong) - MUY SUTIL
-      // R es el vector reflejado de la luz respecto a la normal
-      // reflect(-L, N) calcula la dirección en la que se reflejaría la luz
+      // Fresnel: más reflectante en ángulos rasantes
+      float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+      
+      // Color de "cielo" fake para el reflejo (azul muy pálido)
+      vec3 skyColor = vec3(0.8, 0.9, 0.95);
+      
+      // Especular del sol (Phong)
       vec3 R = reflect(-L, N);
-      
-      // Ángulo entre el vector reflejado y la dirección de vista
-      // Cuanto más alineados estén R y V, más brillante será el reflejo
-      // Esto crea el efecto de "highlight" especular típico del agua
       float specAngle = max(dot(R, V), 0.0);
+      float spec = pow(specAngle, 60.0) * 0.6; // Brillo nítido y fuerte en el punto solar
       
-      // Potencia del brillo especular - MUY REDUCIDA para que el color sea visible
-      // pow(specAngle, 48.0) crea un reflejo muy concentrado y sutil
-      // Multiplicado por 0.2 para que sea apenas visible y no oculte el color
-      float spec = pow(specAngle, 48.0) * 0.2;
+      // Combinar: Difusa + (Cielo * Fresnel) + Especular Sol
+      vec3 waterColor = mix(diffuse, skyColor, fresnel * 0.6) + vec3(spec);
       
-      // Mezcla final para el agua:
-      // - Color base multiplicado por iluminación moderada (50% ambiente + 70% difusa)
-      // - Reflejo especular MUY SUTIL sumado (brilla sutilmente sobre el color)
-      gl_FragColor = vec4(base * (0.5 + lambert * 0.7) + spec, 1.0);
+      gl_FragColor = vec4(waterColor, u_alpha);
       return;
     }
     
     // ILUMINACIÓN PARA TERRENO (no agua):
-    // Usamos iluminación Lambertiana estándar sin reflejos especulares
-    // Estilo render Blender: iluminación más brillante y contrastada
+    // Usamos iluminación Lambertiana estándar pero SUAVE (Matte finish)
     
     // Color base del hexágono
     vec3 base = u_color;
     
     // Cálculo de iluminación Lambertiana
-    // Producto punto entre normal y dirección de la luz
-    // max(..., 0.0) asegura que no haya iluminación negativa
-    float lambert = max(dot(N, L), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
     
-    // Mezcla de color base con iluminación - estilo Blender
-    // 50% color ambiente (más brillante) + 100% iluminación Lambertiana (más contraste)
-    // Esto crea una iluminación más brillante y contrastada, típica de renders de Blender
-    vec3 finalColor = base * (0.5 + lambert * 1.0);
+    // Iluminación "Wrapped Diffuse" para suavidad
+    // En lugar de ir a negro intenso en las sombras, envuelve la luz un poco
+    float diffuse = NdotL * 0.7 + 0.3; // Suaviza el gradiente de luz
     
-    // Output final del fragment shader
-    gl_FragColor = vec4(finalColor, 1.0);
+    // Ambiente más brillante y azulado para simular cielo
+    vec3 ambient = vec3(0.7, 0.75, 0.8) * 0.6;
+    
+    // Luz directa cálida
+    vec3 sunLight = vec3(1.0, 0.95, 0.9) * diffuse * 0.8;
+    
+    // Mezcla final matte: color base * (ambiente + sol)
+    // Sin componente especular para evitar brillo plástico
+    vec3 finalColor = base * (ambient + sunLight);
+    
+    // Output final con alpha
+    gl_FragColor = vec4(finalColor, u_alpha);
   }
 `;
 
@@ -484,16 +478,16 @@ function calculateTriangleNormal(v1, v2, v3) {
   // Vectores del triángulo
   const edge1 = [v2[0] - v1[0], v2[1] - v1[1], v2[2] - v1[2]];
   const edge2 = [v3[0] - v1[0], v3[1] - v1[1], v3[2] - v1[2]];
-  
+
   // Producto cruzado: edge1 × edge2
   const nx = edge1[1] * edge2[2] - edge1[2] * edge2[1];
   const ny = edge1[2] * edge2[0] - edge1[0] * edge2[2];
   const nz = edge1[0] * edge2[1] - edge1[1] * edge2[0];
-  
+
   // Normalizar el vector
   const length = Math.sqrt(nx * nx + ny * ny + nz * nz);
   if (length === 0) return [0, 1, 0]; // Fallback si el triángulo es degenerado
-  
+
   return [nx / length, ny / length, nz / length];
 }
 
@@ -540,7 +534,7 @@ function createHexagonPrismData(radius = HEX_RADIUS_WORLD, height = 1.0) {
   const normals = [];
   const numVertices = 6;
   const angleStep = (2 * Math.PI) / numVertices;
-  
+
   // OFFSET DE ORIENTACIÓN PARA HEXÁGONOS "POINTY-TOP":
   // Para hexágonos pointy-top, un vértice debe estar apuntando hacia arriba (+Z).
   // 
@@ -566,111 +560,111 @@ function createHexagonPrismData(radius = HEX_RADIUS_WORLD, height = 1.0) {
   // la orientación asumida por la fórmula de teselado, permitiendo que los hexágonos
   // encajen perfectamente sin rotaciones adicionales.
   const angleOffset = Math.PI / 6; // 30 grados - offset estándar para pointy-top
-  
+
   // Calcular los 6 vértices del hexágono (para ambas tapas)
   const bottomVertices = [];
   const topVertices = [];
-  
+
   for (let i = 0; i < numVertices; i++) {
     // Aplicar el offset para que el primer vértice esté arriba (pointy-top orientation)
     const angle = i * angleStep + angleOffset;
     const x = radius * Math.cos(angle);
     const z = radius * Math.sin(angle);
-    
+
     // Vértice de la tapa inferior (y = 0)
     bottomVertices.push([x, 0.0, z]);
     // Vértice de la tapa superior (y = height)
     topVertices.push([x, height, z]);
   }
-  
+
   // ============================================================
   // TAPA INFERIOR (hexágono en y = 0)
   // ============================================================
   const bottomCenter = [0.0, 0.0, 0.0];
   // Normal de la tapa inferior apunta hacia abajo (eje Y negativo)
   const bottomNormal = [0, -1, 0];
-  
+
   // 6 triángulos desde el centro hacia los vértices
   for (let i = 0; i < numVertices; i++) {
     const v1 = bottomCenter;
     const v2 = bottomVertices[i];
     const v3 = bottomVertices[(i + 1) % numVertices];
-    
+
     // Triángulo: centro, vértice i, vértice i+1
     positions.push(v1[0], v1[1], v1[2]);
     positions.push(v2[0], v2[1], v2[2]);
     positions.push(v3[0], v3[1], v3[2]);
-    
+
     // Todos los vértices del triángulo tienen la misma normal (flat shading)
     normals.push(bottomNormal[0], bottomNormal[1], bottomNormal[2]);
     normals.push(bottomNormal[0], bottomNormal[1], bottomNormal[2]);
     normals.push(bottomNormal[0], bottomNormal[1], bottomNormal[2]);
   }
-  
+
   // ============================================================
   // TAPA SUPERIOR (hexágono en y = height)
   // ============================================================
   const topCenter = [0.0, height, 0.0];
   // Normal de la tapa superior apunta hacia arriba (eje Y positivo)
   const topNormal = [0, 1, 0];
-  
+
   // 6 triángulos desde el centro hacia los vértices
   // Orden inverso para que las normales apunten hacia arriba
   for (let i = 0; i < numVertices; i++) {
     const v1 = topCenter;
     const v2 = topVertices[(i + 1) % numVertices];
     const v3 = topVertices[i];
-    
+
     // Triángulo: centro, vértice i+1, vértice i (orden inverso)
     positions.push(v1[0], v1[1], v1[2]);
     positions.push(v2[0], v2[1], v2[2]);
     positions.push(v3[0], v3[1], v3[2]);
-    
+
     // Todos los vértices del triángulo tienen la misma normal (flat shading)
     normals.push(topNormal[0], topNormal[1], topNormal[2]);
     normals.push(topNormal[0], topNormal[1], topNormal[2]);
     normals.push(topNormal[0], topNormal[1], topNormal[2]);
   }
-  
+
   // ============================================================
   // CARAS LATERALES (6 caras, cada una con 2 triángulos)
   // ============================================================
   for (let i = 0; i < numVertices; i++) {
     const nextI = (i + 1) % numVertices;
-    
+
     // Vértices de la cara lateral i
     const bottom1 = bottomVertices[i];      // Vértice inferior i
     const bottom2 = bottomVertices[nextI];  // Vértice inferior i+1
     const top1 = topVertices[i];            // Vértice superior i
     const top2 = topVertices[nextI];        // Vértice superior i+1
-    
+
     // Primer triángulo: bottom1, bottom2, top1
     positions.push(bottom1[0], bottom1[1], bottom1[2]);
     positions.push(bottom2[0], bottom2[1], bottom2[2]);
     positions.push(top1[0], top1[1], top1[2]);
-    
+
     // Calcular normal del primer triángulo usando producto cruzado
     const normal1 = calculateTriangleNormal(bottom1, bottom2, top1);
     normals.push(normal1[0], normal1[1], normal1[2]);
     normals.push(normal1[0], normal1[1], normal1[2]);
     normals.push(normal1[0], normal1[1], normal1[2]);
-    
+
     // Segundo triángulo: top1, bottom2, top2
     positions.push(top1[0], top1[1], top1[2]);
     positions.push(bottom2[0], bottom2[1], bottom2[2]);
     positions.push(top2[0], top2[1], top2[2]);
-    
+
     // Calcular normal del segundo triángulo usando producto cruzado
     const normal2 = calculateTriangleNormal(top1, bottom2, top2);
     normals.push(normal2[0], normal2[1], normal2[2]);
     normals.push(normal2[0], normal2[1], normal2[2]);
     normals.push(normal2[0], normal2[1], normal2[2]);
   }
-  
+
   console.log(`✓ Prisma hexagonal generado con normales: radio=${radius}, altura=${height}`);
   console.log(`  - 2 tapas (12 triángulos) + 6 caras laterales (12 triángulos) = 24 triángulos totales`);
   console.log(`  - Normales calculadas por cara (flat shading) para estilo low-poly`);
-  
+
   return {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals)
@@ -719,7 +713,7 @@ function createHexagonPrismData(radius = HEX_RADIUS_WORLD, height = 1.0) {
 function hexDistance(q1, r1, q2, r2) {
   const dq = q1 - q2;
   const dr = r1 - r2;
-  
+
   // Fórmula de distancia hexagonal en coordenadas axiales
   // Convertimos a coordenadas cúbicas implícitamente y calculamos la distancia
   return (Math.abs(dq) + Math.abs(dq + dr) + Math.abs(dr)) / 2;
@@ -776,13 +770,13 @@ function hexDistance(q1, r1, q2, r2) {
 function generateHeight(q, r, biome, noiseGenerator, noiseScale = 0.2) {
   // Extrae los límites de altura del bioma
   const { minHeight, maxHeight } = biome;
-  
+
   // Validación: asegurar que noiseGenerator existe y tiene el método noise2D
   if (!noiseGenerator || typeof noiseGenerator.noise2D !== 'function') {
     console.warn('Generador de ruido no válido, usando altura aleatoria');
     return Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
   }
-  
+
   try {
     // PASO 1: Evaluar ruido 2D en las coordenadas escaladas
     // Las coordenadas se multiplican por noiseScale para controlar la frecuencia
@@ -790,31 +784,31 @@ function generateHeight(q, r, biome, noiseGenerator, noiseScale = 0.2) {
     // noiseScale más grande = terreno más rugoso (más variación)
     const noiseX = q * noiseScale;
     const noiseY = r * noiseScale;
-    
+
     // Simplex Noise devuelve un valor entre aproximadamente -1 y 1
     const noiseValue = noiseGenerator.noise2D(noiseX, noiseY);
-    
+
     // Validación: asegurar que el valor de ruido es válido
     if (typeof noiseValue !== 'number' || isNaN(noiseValue) || !isFinite(noiseValue)) {
       console.warn('Valor de ruido inválido, usando altura aleatoria');
       return Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
     }
-    
+
     // PASO 2: Normalizar el ruido de [-1, 1] a [0, 1]
     // Esto convierte el valor de ruido a un rango más manejable
     const normalizedNoise = (noiseValue + 1) / 2;
-    
+
     // PASO 3: Mapear el ruido normalizado al rango de alturas del bioma
     // Fórmula: height = minHeight + (noise normalizado) * rango
     // Esto asegura que la altura esté siempre entre minHeight y maxHeight
     const height = minHeight + normalizedNoise * (maxHeight - minHeight);
-    
+
     // PASO 4: Redondear para obtener un valor entero
     // Usamos Math.round para redondear al entero más cercano
     // Aseguramos que el resultado esté en el rango válido
     const finalHeight = Math.round(height);
     return Math.max(minHeight, Math.min(maxHeight, finalHeight));
-    
+
   } catch (error) {
     console.error('Error en generateHeight:', error);
     // Fallback: altura aleatoria si hay error
@@ -881,7 +875,7 @@ function generateColor(baseColor, colorVariance) {
   const r = Math.max(0.0, Math.min(1.0, baseColor[0] + (Math.random() * 2 - 1) * colorVariance));
   const g = Math.max(0.0, Math.min(1.0, baseColor[1] + (Math.random() * 2 - 1) * colorVariance));
   const b = Math.max(0.0, Math.min(1.0, baseColor[2] + (Math.random() * 2 - 1) * colorVariance));
-  
+
   return [r, g, b];
 }
 
@@ -925,23 +919,23 @@ function generateColor(baseColor, colorVariance) {
  */
 function createCells(biome) {
   const cells = [];
-  
+
   // Extrae parámetros del bioma (algunos pueden ser undefined para biomas especiales como Rock)
   const baseColor = biome.baseColor; // Puede ser undefined para biomas que usan computeColor personalizado
   const minHeight = biome.minHeight;
   const maxHeight = biome.maxHeight;
   const colorVariance = biome.colorVariance;
-  
+
   // Inicializa el generador de ruido Simplex
   // Inicializar SimplexNoise para generar alturas suaves del terreno
   // IMPORTANTE: SimplexNoise debe estar disponible globalmente después de cargar el script del CDN
   // La versión 3.0.1 puede exponer la API de diferentes formas dependiendo del build del CDN
   let noise2D = null;
-  
+
   try {
     // Verificar disponibilidad de SimplexNoise en diferentes ubicaciones posibles
     let SimplexNoiseModule = null;
-    
+
     // Opción 1: window.SimplexNoise (más común desde CDN UMD)
     if (typeof window !== 'undefined' && window.SimplexNoise) {
       SimplexNoiseModule = window.SimplexNoise;
@@ -955,7 +949,7 @@ function createCells(biome) {
       noise2D = window.createNoise2D();
       console.log('✓ SimplexNoise cargado y funcionando (createNoise2D directo en window)');
     }
-    
+
     // Si encontramos el módulo, crear la función de ruido
     if (SimplexNoiseModule && !noise2D) {
       // API nueva (v3.x): createNoise2D()
@@ -973,20 +967,20 @@ function createCells(biome) {
         throw new Error('SimplexNoise encontrado pero sin API reconocida (ni createNoise2D ni constructor)');
       }
     }
-    
+
     // Verificar que tenemos una función de ruido válida
     if (!noise2D || typeof noise2D !== 'function') {
       throw new Error('No se pudo crear la función noise2D. SimplexNoise podría no estar cargado correctamente.');
     }
-    
+
     // Probar que la función funciona correctamente con una llamada de prueba
     const testValue = noise2D(0, 0);
     if (typeof testValue !== 'number' || isNaN(testValue) || !isFinite(testValue)) {
       throw new Error('noise2D devolvió un valor inválido: ' + testValue);
     }
-    
+
     console.log(`✓ SimplexNoise verificado: testValue = ${testValue.toFixed(6)} (debe estar entre -1 y 1)`);
-    
+
   } catch (error) {
     console.error('❌ Error crítico al inicializar SimplexNoise:', error);
     console.error('');
@@ -1003,18 +997,18 @@ function createCells(biome) {
     console.error('');
     throw new Error('FALLÓ la inicialización de SimplexNoise. ' + error.message);
   }
-  
+
   // Crear wrapper con la interfaz que espera generateHeight
   // noise2D ya es una función que acepta (x, y) y devuelve un número entre -1 y 1
   const noiseGenerator = {
     noise2D: noise2D
   };
-  
+
   // Escala del ruido: controla qué tan suave o rugoso es el terreno
   // Valores más pequeños (ej: 0.1-0.2) = terreno más suave, cambios graduales
   // Valores más grandes (ej: 0.5-1.0) = terreno más rugoso, cambios más abruptos
   const noiseScale = 0.2;
-  
+
   // Genera todas las celdas dentro del radio hexagonal GRID_RADIUS
   // Iteramos sobre un rango razonable y filtramos por distancia
   // El centro es (0, 0), así que necesitamos cubrir aproximadamente [-GRID_RADIUS, GRID_RADIUS]
@@ -1022,7 +1016,7 @@ function createCells(biome) {
     for (let r = -GRID_RADIUS; r <= GRID_RADIUS; r++) {
       // Calcula la distancia hexagonal desde el centro (0, 0)
       const distance = hexDistance(0, 0, q, r);
-      
+
       // Solo genera celdas dentro del radio especificado
       if (distance > GRID_RADIUS) {
         continue; // Salta esta celda si está fuera del radio
@@ -1032,13 +1026,13 @@ function createCells(biome) {
       // Si el bioma tiene computeHeight, usarla; si no, usar generateHeight estándar con ruido
       let height;
       let heightNorm = null; // Algunos biomas necesitan heightNorm para colores (ej: Rock)
-      
+
       if (biome.computeHeight && typeof biome.computeHeight === 'function') {
         // Bioma con función computeHeight personalizada (ej: Rock con forma de montaña)
         // Esta función puede retornar {height, heightNorm} o solo height
         const context = { gridRadius: GRID_RADIUS };
         const result = biome.computeHeight(q, r, noiseGenerator, context);
-        
+
         if (typeof result === 'object' && result !== null) {
           // Si retorna un objeto, puede tener height y heightNorm
           height = result.height;
@@ -1055,13 +1049,13 @@ function createCells(biome) {
         const biomeNoiseScale = biome.heightNoiseScale !== undefined ? biome.heightNoiseScale : noiseScale;
         height = generateHeight(q, r, biome, noiseGenerator, biomeNoiseScale);
       }
-      
+
       // Calcular la posición (x, z) del centro del hexágono en el mundo
       // Esto viene directamente de la función hexToPixel3D (equivalente a axialToWorld)
       // Se almacena en la celda como worldX y worldZ para reutilización
       // IMPORTANTE: hexToPixel3D retorna {x, y, z}, pero y siempre es 0 (plano XZ)
       const pos = hexToPixel3D(q, r, HEX_RADIUS_WORLD);
-      
+
       // Crear objeto celda ANTES de calcular el color
       // Esto permite que computeColor pueda modificar propiedades (ej: candidateWater)
       const cell = {
@@ -1076,14 +1070,14 @@ function createCells(biome) {
         isWater: false, // Se decidirá después mediante detección de clusters
         waterHeight: null // Altura específica para agua (se asignará en detectWaterClusters)
       };
-      
+
       // Si heightNorm no se calculó arriba pero el bioma lo necesita, calcularlo ahora
       if (cell.heightNorm === null && biome.computeColor) {
         // Calcular heightNorm para biomas que lo necesitan (como Rock)
         const heightRange = biome.maxHeight - biome.minHeight || 1.0;
         cell.heightNorm = (height - biome.minHeight) / heightRange;
       }
-      
+
       // GENERACIÓN DE COLOR usando parámetros del bioma:
       // Cada bioma tiene su propia función computeColor específica
       // Si el bioma tiene computeColor, la usa; si no, usa la función genérica
@@ -1109,23 +1103,23 @@ function createCells(biome) {
         // Fallback: usa la función genérica para biomas sin función personalizada
         color = generateColor(baseColor, colorVariance);
       }
-      
+
       // Validar que el color sea válido (array de 3 números)
-      if (!color || !Array.isArray(color) || color.length !== 3 || 
-          typeof color[0] !== 'number' || typeof color[1] !== 'number' || typeof color[2] !== 'number') {
+      if (!color || !Array.isArray(color) || color.length !== 3 ||
+        typeof color[0] !== 'number' || typeof color[1] !== 'number' || typeof color[2] !== 'number') {
         console.error(`Error: Color inválido para celda (${q}, ${r}):`, color);
         // Usar color por defecto si hay error
         color = [0.5, 0.5, 0.5]; // Gris por defecto
       }
-      
+
       // Asignar el color calculado a la celda
       cell.color = color;
-      
+
       // Agregar la celda al array
       cells.push(cell);
     }
   }
-  
+
   console.log(`✓ ${cells.length} celdas creadas con bioma (radio hexagonal: ${GRID_RADIUS}):`);
   console.log(`  - Alturas: ${minHeight} a ${maxHeight}`);
   // Solo mostrar color base si el bioma lo tiene (Rock no tiene baseColor)
@@ -1137,7 +1131,7 @@ function createCells(biome) {
   if (colorVariance !== undefined) {
     console.log(`  - Variación de color: ±${colorVariance}`);
   }
-  
+
   // DETECCIÓN DE CLUSTERS DE AGUA (para biomas Forest y Clay)
   // Después de crear todas las celdas, detectar clusters de agua conectados
   // Solo los clusters grandes (≥6 celdas) se marcan como agua
@@ -1145,7 +1139,7 @@ function createCells(biome) {
   if (biome.name === "Forest" || biome.name === "Clay") {
     const MIN_WATER_CLUSTER = 6; // Tamaño mínimo del cluster para ser considerado agua
     detectWaterClusters(cells, MIN_WATER_CLUSTER);
-    
+
     // Aplicar altura y color de agua a las celdas marcadas como agua
     for (const cell of cells) {
       if (cell.isWater && cell.waterHeight !== null) {
@@ -1153,7 +1147,7 @@ function createCells(biome) {
       }
     }
   }
-  
+
   return cells;
 }
 
@@ -1296,16 +1290,16 @@ function findWaterCluster(startCell, cellMap, visited) {
   const queue = [startCell];
   const startKey = `${startCell.q},${startCell.r}`;
   visited.add(startKey);
-  
+
   while (queue.length > 0) {
     const cell = queue.shift();
     cluster.push(cell);
-    
+
     // Explorar los 6 vecinos hexagonales
     const neighbors = getHexNeighbors(cell.q, cell.r);
     for (const neighbor of neighbors) {
       const neighborKey = `${neighbor.q},${neighbor.r}`;
-      
+
       // Si el vecino existe, es candidato y no ha sido visitado, agregarlo al cluster
       if (!visited.has(neighborKey)) {
         const neighborCell = cellMap.get(neighborKey);
@@ -1316,7 +1310,7 @@ function findWaterCluster(startCell, cellMap, visited) {
       }
     }
   }
-  
+
   return cluster;
 }
 
@@ -1346,26 +1340,26 @@ function detectWaterClusters(cells, minClusterSize = 6) {
     const key = `${cell.q},${cell.r}`;
     cellMap.set(key, cell);
   }
-  
+
   // Set para rastrear celdas ya visitadas durante la búsqueda de clusters
   const visited = new Set();
-  
+
   // Contador de clusters encontrados
   let clusterCount = 0;
   let totalWaterCells = 0;
-  
+
   // Recorrer todas las celdas candidatas
   for (const cell of cells) {
     // Solo procesar celdas candidatas que no hayan sido visitadas
     if (cell.candidateWater && !visited.has(`${cell.q},${cell.r}`)) {
       // Encontrar el cluster completo usando BFS
       const cluster = findWaterCluster(cell, cellMap, visited);
-      
+
       // Solo marcar como agua si el cluster es suficientemente grande
       if (cluster.length >= minClusterSize) {
         clusterCount++;
         totalWaterCells += cluster.length;
-        
+
         // Marcar todas las celdas del cluster como agua
         for (const clusterCell of cluster) {
           clusterCell.isWater = true;
@@ -1385,15 +1379,15 @@ function detectWaterClusters(cells, minClusterSize = 6) {
       }
     }
   }
-  
+
   console.log(`✓ Detección de clusters de agua: ${clusterCount} clusters, ${totalWaterCells} celdas de agua (tamaño mínimo: ${minClusterSize})`);
-  
+
   return clusterCount;
 }
 
 function hexToPixel3D(q, r, size = HEX_RADIUS_WORLD) {
   const sqrt3 = Math.sqrt(3);
-  
+
   // FÓRMULA ESTÁNDAR PARA HEXÁGONOS "POINTY-TOP"
   // Esta fórmula garantiza un tesselado perfecto donde los hexágonos
   // se tocan exactamente en sus bordes sin huecos ni superposición
@@ -1401,7 +1395,7 @@ function hexToPixel3D(q, r, size = HEX_RADIUS_WORLD) {
   const x = size * sqrt3 * (q + r / 2.0);
   const y = 0.0; // Siempre en el plano XZ
   const z = size * 1.5 * r;
-  
+
   return { x, y, z };
 }
 
@@ -1456,14 +1450,14 @@ function scaleMat4(x, y, z) {
  */
 function transposeMat4(m) {
   const out = new Float32Array(16);
-  
+
   // Transponer la matriz: out[i][j] = m[j][i]
   for (let i = 0; i < 4; i++) {
     for (let j = 0; j < 4; j++) {
       out[i * 4 + j] = m[j * 4 + i];
     }
   }
-  
+
   return out;
 }
 
@@ -1484,25 +1478,25 @@ function transposeMat4(m) {
 function invertMat4(m) {
   const out = new Float32Array(16);
   const inv = new Float32Array(16);
-  
+
   // Copiar la matriz original
   for (let i = 0; i < 16; i++) {
     inv[i] = m[i];
   }
-  
+
   // Inicializar la matriz de salida como identidad
   for (let i = 0; i < 4; i++) {
     for (let j = 0; j < 4; j++) {
       out[i * 4 + j] = (i === j) ? 1.0 : 0.0;
     }
   }
-  
+
   // Eliminación de Gauss-Jordan
   for (let i = 0; i < 4; i++) {
     // Buscar el pivote (elemento no cero)
     let pivot = i;
     let maxVal = Math.abs(inv[i * 4 + i]);
-    
+
     for (let j = i + 1; j < 4; j++) {
       const val = Math.abs(inv[j * 4 + i]);
       if (val > maxVal) {
@@ -1510,13 +1504,13 @@ function invertMat4(m) {
         pivot = j;
       }
     }
-    
+
     // Si no hay pivote válido, la matriz no es invertible
     if (maxVal < 0.0001) {
       console.warn('Matriz no invertible, retornando identidad');
       return identityMat4();
     }
-    
+
     // Intercambiar filas si es necesario
     if (pivot !== i) {
       for (let j = 0; j < 4; j++) {
@@ -1524,21 +1518,21 @@ function invertMat4(m) {
         let temp = inv[i * 4 + j];
         inv[i * 4 + j] = inv[pivot * 4 + j];
         inv[pivot * 4 + j] = temp;
-        
+
         // Intercambiar filas en out
         temp = out[i * 4 + j];
         out[i * 4 + j] = out[pivot * 4 + j];
         out[pivot * 4 + j] = temp;
       }
     }
-    
+
     // Normalizar la fila del pivote
     const pivotVal = inv[i * 4 + i];
     for (let j = 0; j < 4; j++) {
       inv[i * 4 + j] /= pivotVal;
       out[i * 4 + j] /= pivotVal;
     }
-    
+
     // Eliminación hacia abajo y hacia arriba
     for (let j = 0; j < 4; j++) {
       if (j !== i) {
@@ -1550,7 +1544,7 @@ function invertMat4(m) {
       }
     }
   }
-  
+
   return out;
 }
 
@@ -1576,10 +1570,10 @@ function invertMat4(m) {
 function calculateNormalMatrix(modelMatrix) {
   // Calcular la inversa de la matriz modelo
   const inverseModel = invertMat4(modelMatrix);
-  
+
   // Transponer la inversa para obtener la matriz normal
   const normalMatrix = transposeMat4(inverseModel);
-  
+
   return normalMatrix;
 }
 
@@ -1657,13 +1651,13 @@ function drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, heigh
   // - visualHeight: altura visual real en unidades del mundo 3D
   // - HEIGHT_UNIT: factor de escala que convierte altura lógica → visual
   const visualHeight = height * HEIGHT_UNIT;
-  
+
   // PASO 1: Crear matriz de escala en Y según la altura visual
   // El prisma base tiene altura 1.0 en sus datos de geometría
   // Lo escalamos en Y por visualHeight para obtener la altura visual deseada
   // Escala en X y Z = 1.0 (no cambian), escala en Y = visualHeight
   const scaleMatrix = scaleMat4(1.0, visualHeight, 1.0);
-  
+
   // PASO 2: Crear matriz de traslación para posicionar el prisma
   // La base del prisma escalado debe quedar en el plano XZ (y = 0)
   // El prisma base tiene base en y=0 y tapa en y=1.0
@@ -1671,38 +1665,42 @@ function drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, heigh
   // La traslación en Y es 0 para mantener la base en el plano XZ
   // La traslación en X y Z posiciona el hexágono en su lugar en la grilla
   const translationMatrix = translateMat4(x, 0, z);
-  
+
   // PASO 3: Combinar las transformaciones: translation * scale
   // Orden: primero escalamos, luego trasladamos
   // Esto significa que el prisma escalado se coloca en la posición correcta
   const modelMatrix = multiplyMat4(translationMatrix, scaleMatrix);
-  
+
   // PASO 4: Calcular la matriz normal (inversa transpuesta de la matriz modelo)
   // Esta matriz se usa para transformar las normales correctamente
   // Es necesaria cuando hay escalas no uniformes (como nuestro scale en Y)
   const normalMatrix = calculateNormalMatrix(modelMatrix);
-  
+
   // Obtiene las ubicaciones de los uniforms en el shader
   const modelLocation = gl.getUniformLocation(program, 'u_model');
   const viewLocation = gl.getUniformLocation(program, 'u_view');
   const projectionLocation = gl.getUniformLocation(program, 'u_projection');
   const normalMatrixLocation = gl.getUniformLocation(program, 'u_normalMatrix');
   const colorLocation = gl.getUniformLocation(program, 'u_color');
+  const alphaLocation = gl.getUniformLocation(program, 'u_alpha'); // Nuevo uniform
   const isWaterLocation = gl.getUniformLocation(program, 'uIsWater');
   const cameraPosLocation = gl.getUniformLocation(program, 'uCameraPosition');
-  
+
   // Configura las matrices en el shader
   gl.uniformMatrix4fv(modelLocation, false, modelMatrix);
   gl.uniformMatrix4fv(viewLocation, false, viewMatrix);
   gl.uniformMatrix4fv(projectionLocation, false, projectionMatrix);
   gl.uniformMatrix4fv(normalMatrixLocation, false, normalMatrix);
-  
+
   // Configura el color del hexágono
   gl.uniform3f(colorLocation, color[0], color[1], color[2]);
-  
+
+  // Configura el alpha (opacidad)
+  gl.uniform1f(alphaLocation, 1.0); // Por defecto opaco
+
   // Configura la bandera de agua (1.0 si es agua, 0.0 si es terreno)
   gl.uniform1f(isWaterLocation, isWater ? 1.0 : 0.0);
-  
+
   // Configura la posición de la cámara (ya se configuró en drawHexGrid, pero lo establecemos aquí también por si se llama directamente)
   // El shader usa uCameraPosition para calcular correctamente el view direction (V)
   if (cameraPosLocation) {
@@ -1713,15 +1711,15 @@ function drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, heigh
       gl.uniform3f(cameraPosLocation, 5.0, 8.0, 5.0);
     }
   }
-  
+
   // Configura el atributo a_position para leer del buffer de posiciones
   // size=3 porque cada vértice tiene 3 componentes (x, y, z)
   setupAttribute(gl, program, 'a_position', positionBuffer, 3);
-  
+
   // Configura el atributo a_normal para leer del buffer de normales
   // size=3 porque cada normal tiene 3 componentes (nx, ny, nz)
   setupAttribute(gl, program, 'a_normal', normalBuffer, 3);
-  
+
   // Dibuja el prisma usando TRIANGLES
   // El buffer contiene 24 triángulos = 72 vértices
   // Cada triángulo tiene 3 vértices, por lo que dibujamos 72 vértices
@@ -1763,39 +1761,39 @@ function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, h
   // Limpia el canvas con color de fondo oscuro
   // Fondo negro puro estilo Blender
   clearCanvas(gl, 0.0, 0.0, 0.0, 1.0);
-  
+
   // Activa el programa de shaders (solo una vez para todos los prismas)
   gl.useProgram(program);
-  
+
   // Si no se proporcionan las matrices, calcularlas automáticamente
   let finalViewMatrix = viewMatrix;
   let finalProjectionMatrix = projectionMatrix;
   let finalCameraPos = cameraPos;
-  
+
   if (!finalViewMatrix || !finalProjectionMatrix) {
     // Calcula el tamaño del terreno para ajustar la cámara
     const terrainSize = GRID_RADIUS * hexRadius * Math.sqrt(3) * 2;
     // Cámara más cerca del terreno (reducido de 1.2 a 0.85 para acercar la vista)
     const cameraDistance = terrainSize * 0.85;
-    
+
     const eye = [cameraDistance * 0.7, cameraDistance * 0.8, cameraDistance * 0.7];
     const center = [0, 0, 0];
     const up = [0, 1, 0];
-    
+
     finalViewMatrix = lookAt(eye, center, up);
-    
+
     // Si no se proporcionó cameraPos, usar la posición de eye calculada
     if (!finalCameraPos) {
       finalCameraPos = eye;
     }
-    
+
     const aspect = canvas.width / canvas.height;
     finalProjectionMatrix = perspective(60, aspect, 0.1, 100.0);
   }
-  
+
   // RENDERIZADO EN DOS PASOS: Primero terreno, luego agua
   // Esto asegura que el agua se renderice encima y tenga el efecto especial
-  
+
   // Configurar posición de la cámara en el shader (una vez para todos los hexágonos)
   // Esto es necesario para el cálculo correcto del view direction (V) en el efecto especular del agua
   // El shader usa uCameraPosition (no u_cameraPos) para calcular correctamente los reflejos
@@ -1808,7 +1806,7 @@ function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, h
       gl.uniform3f(cameraPosLocation, 5.0, 8.0, 5.0);
     }
   }
-  
+
   // PASO 1: Dibujar todas las celdas de terreno (no agua)
   for (const cell of cells) {
     if (!cell.isWater) {
@@ -1816,13 +1814,13 @@ function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, h
       // cell.worldX y cell.worldZ son el centro exacto del hexágono en el mundo
       const x = cell.worldX;
       const z = cell.worldZ;
-      
+
       // Dibuja el prisma en esa posición con la altura y color correspondientes
       // isWater = false para aplicar iluminación normal
       drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, 0, z, cell.height, cell.color, finalViewMatrix, finalProjectionMatrix, false, finalCameraPos);
     }
   }
-  
+
   // PASO 2: Dibujar todas las celdas de agua
   // El agua se renderiza después para que quede encima y tenga el efecto especial
   let waterCellCount = 0;
@@ -1831,7 +1829,7 @@ function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, h
       waterCellCount++;
       const x = cell.worldX;
       const z = cell.worldZ;
-      
+
       // Dibuja el prisma de agua con altura plana y color azul
       // isWater = true para activar el material especial de agua en el shader
       // Esto activa el brillo especular y la iluminación especial del agua
@@ -1839,7 +1837,7 @@ function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, h
       drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, 0, z, cell.height, cell.color, finalViewMatrix, finalProjectionMatrix, true, finalCameraPos);
     }
   }
-  
+
   const terrainCellCount = cells.length - waterCellCount;
   console.log(`✓ Grilla 3D dibujada: ${terrainCellCount} prismas de terreno + ${waterCellCount} prismas de agua (total: ${cells.length})`);
 }
@@ -1871,41 +1869,46 @@ function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, h
  * @param {Float32Array} projectionMatrix - Matriz de proyección
  * @param {number[]} color - Color RGB del objeto [r, g, b] (valores 0.0 a 1.0)
  * @param {number} [indexOffset] - Offset en bytes dentro del buffer de índices (opcional)
+ * @param {number} [alpha=1.0] - Valor de opacidad (0.0 a 1.0)
  */
-function drawMesh(gl, program, positionBuffer, normalBuffer, indexBuffer, indexCount, modelMatrix, viewMatrix, projectionMatrix, color, indexOffset = 0) {
+function drawMesh(gl, program, positionBuffer, normalBuffer, indexBuffer, indexCount, modelMatrix, viewMatrix, projectionMatrix, color, indexOffset = 0, alpha = 1.0) {
   // Calcular la matriz normal (inversa transpuesta de la matriz modelo)
   const normalMatrix = calculateNormalMatrix(modelMatrix);
-  
+
   // Obtiene las ubicaciones de los uniforms en el shader
   const modelLocation = gl.getUniformLocation(program, 'u_model');
   const viewLocation = gl.getUniformLocation(program, 'u_view');
   const projectionLocation = gl.getUniformLocation(program, 'u_projection');
   const normalMatrixLocation = gl.getUniformLocation(program, 'u_normalMatrix');
   const colorLocation = gl.getUniformLocation(program, 'u_color');
+  const alphaLocation = gl.getUniformLocation(program, 'u_alpha'); // Nuevo uniform
   const isWaterLocation = gl.getUniformLocation(program, 'uIsWater');
-  
+
   // Configura las matrices en el shader
   gl.uniformMatrix4fv(modelLocation, false, modelMatrix);
   gl.uniformMatrix4fv(viewLocation, false, viewMatrix);
   gl.uniformMatrix4fv(projectionLocation, false, projectionMatrix);
   gl.uniformMatrix4fv(normalMatrixLocation, false, normalMatrix);
-  
+
   // Configura el color del objeto
   gl.uniform3f(colorLocation, color[0], color[1], color[2]);
-  
+
+  // Configura el alpha (opacidad)
+  gl.uniform1f(alphaLocation, alpha);
+
   // IMPORTANTE: Establecer uIsWater = 0.0 para objetos que NO son agua
   // Esto asegura que árboles, ovejas y terreno normal no reciban el efecto de agua
   gl.uniform1f(isWaterLocation, 0.0);
-  
+
   // Configura el atributo a_position para leer del buffer de posiciones
   setupAttribute(gl, program, 'a_position', positionBuffer, 3);
-  
+
   // Configura el atributo a_normal para leer del buffer de normales
   setupAttribute(gl, program, 'a_normal', normalBuffer, 3);
-  
+
   // Activa el buffer de índices (ELEMENT_ARRAY_BUFFER)
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-  
+
   // Dibuja el mesh usando índices (gl.drawElements)
   // indexOffset está en bytes, Uint16Array = 2 bytes por índice
   gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, indexOffset);
@@ -1936,9 +1939,32 @@ function drawTree(gl, program, treeMesh, modelMatrix, viewMatrix, projectionMatr
  * @param {Float32Array} viewMatrix - Matriz de vista
  * @param {Float32Array} projectionMatrix - Matriz de proyección
  * @param {number[]} crownColor - Color RGB [r, g, b] para la copa del árbol
+ * @param {number} [alpha=1.0] - Valor de opacidad para el árbol (0.0 a 1.0)
  */
-function drawTreeWithColor(gl, program, treeMesh, modelMatrix, viewMatrix, projectionMatrix, crownColor) {
-  // Dibujar el tronco (marrón)
+function drawTreeWithColor(gl, program, treeMesh, modelMatrix, viewMatrix, projectionMatrix, crownColor, alpha = 1.0) {
+  // 1. DIBUJAR SOMBRA (si está disponible en la malla)
+  // Dibujar primero y sin escribir en depth buffer para evitar z-fighting con el suelo
+  if (treeMesh.shadowIndexCount && treeMesh.shadowIndexCount > 0) {
+    gl.depthMask(false); // No escribir en depth buffer
+
+    drawMesh(
+      gl, program,
+      treeMesh.positionBuffer,
+      treeMesh.normalBuffer,
+      treeMesh.indexBuffer,
+      treeMesh.shadowIndexCount,
+      modelMatrix,
+      viewMatrix,
+      projectionMatrix,
+      [0.0, 0.0, 0.0], // Color negro sombra
+      treeMesh.shadowIndexOffset * 2, // Offset bytes
+      0.4 // Alpha 40% para la sombra
+    );
+
+    gl.depthMask(true); // Restaurar escritura
+  }
+
+  // 2. DIBUJAR TRONCO (marrón)
   drawMesh(
     gl, program,
     treeMesh.positionBuffer,
@@ -1949,10 +1975,11 @@ function drawTreeWithColor(gl, program, treeMesh, modelMatrix, viewMatrix, proje
     viewMatrix,
     projectionMatrix,
     TREE_TRUNK_COLOR,
-    0 // Offset: empieza desde el inicio
+    0, // Offset: empieza desde el inicio
+    alpha
   );
-  
-  // Dibujar la copa (color personalizado según el bioma)
+
+  // 3. DIBUJAR COPA (color personalizado según el bioma)
   drawMesh(
     gl, program,
     treeMesh.positionBuffer,
@@ -1963,7 +1990,8 @@ function drawTreeWithColor(gl, program, treeMesh, modelMatrix, viewMatrix, proje
     viewMatrix,
     projectionMatrix,
     crownColor,
-    treeMesh.crownIndexOffset * 2 // Offset en bytes (Uint16Array = 2 bytes por índice)
+    treeMesh.crownIndexOffset * 2, // Offset en bytes
+    alpha
   );
 }
 
@@ -2002,13 +2030,13 @@ function createTreeInstances(cells, targetBiome = null) {
   if (!targetBiome) {
     targetBiome = getActiveBiome();
   }
-  
+
   const treeInstances = [];
   let biomeCellsCount = 0;
-  
+
   // Obtener la densidad de árboles del bioma (cada bioma puede tener su propia densidad)
   const treeDensity = targetBiome.treeDensity !== undefined ? targetBiome.treeDensity : TREE_DENSITY;
-  
+
   // Recorrer todas las celdas del terreno
   for (const cell of cells) {
     // FILTRAR: Solo generar árboles en celdas del bioma objetivo
@@ -2016,12 +2044,12 @@ function createTreeInstances(cells, targetBiome = null) {
     if (cell.biome !== targetBiome) {
       continue; // Saltar celdas que no pertenecen al bioma objetivo
     }
-    
+
     // FILTRAR: Saltar celdas de agua (no hay árboles en el agua)
     if (cell.isWater) {
       continue; // Esta celda es agua, no poner árbol
     }
-    
+
     // FILTRAR ESPECIAL PARA BIOMA ROCK:
     // En el bioma Rock, solo generar árboles en la zona verde (base de la montaña)
     // La zona verde corresponde a heightNorm < 0.2 (primeros 20% de la altura, solo pasto)
@@ -2037,7 +2065,7 @@ function createTreeInstances(cells, targetBiome = null) {
         continue; // Esta celda está en zona rocosa o nevada, no poner árbol
       }
     }
-    
+
     // FILTRAR ESPECIAL PARA BIOMA CLAY:
     // En el bioma Clay, solo generar árboles en las colinas altas de pasto
     // Las colinas altas corresponden a heightNorm >= 0.8 (últimos 20% de la altura)
@@ -2053,21 +2081,21 @@ function createTreeInstances(cells, targetBiome = null) {
         continue; // Esta celda está en zona de cobre o roca, no poner árbol
       }
     }
-    
+
     biomeCellsCount++;
-    
+
     // EVITAR CONFLICTOS: Saltar celdas que ya tienen una oveja
     // Esto asegura que árboles y ovejas no compartan el mismo hexágono
     if (cell.occupied) {
       continue; // Esta celda ya tiene una oveja, no poner árbol
     }
-    
+
     // Decidir aleatoriamente si esta celda debe tener un árbol
     // Usar la densidad del bioma (cada bioma puede tener diferente densidad)
     if (Math.random() >= treeDensity) {
       continue; // No poner árbol en esta celda
     }
-    
+
     // ============================================================
     // POSICIÓN DEL ÁRBOL: Usar directamente worldX y worldZ de la celda
     // ============================================================
@@ -2079,7 +2107,7 @@ function createTreeInstances(cells, targetBiome = null) {
     // Así que simplemente trasladamos el árbol a estas coordenadas
     const posX = cell.worldX;  // Exactamente el centro del hexágono
     const posZ = cell.worldZ;  // Exactamente el centro del hexágono
-    
+
     // ============================================================
     // JITTER OPCIONAL: Desactivado por ahora para centrado perfecto
     // ============================================================
@@ -2091,7 +2119,7 @@ function createTreeInstances(cells, targetBiome = null) {
     // const offsetZ = Math.sin(jitterAngle) * jitterDistance;
     // posX = posX + offsetX;
     // posZ = posZ + offsetZ;
-    
+
     // ============================================================
     // ALTURA DEL ÁRBOL: Exactamente sobre la tapa del hexágono
     // ============================================================
@@ -2105,13 +2133,13 @@ function createTreeInstances(cells, targetBiome = null) {
     const visualHeight = cell.height * HEIGHT_UNIT; // Altura visual calculada
     const actualHexHeight = HEX_BASE_HEIGHT * visualHeight; // Altura real del hexágono = baseHeight * visualHeight
     const posY = actualHexHeight; // Árbol sobre la tapa del hexágono
-    
+
     // Validar que la altura sea válida (no negativa ni cero)
     if (posY <= 0) {
       console.warn(`Advertencia: Celda (${cell.q}, ${cell.r}) tiene altura ${cell.height}, visualHeight=${visualHeight}. Saltando árbol.`);
       continue;
     }
-    
+
     // ============================================================
     // TRANSFORMACIONES: Rotación y escala aleatorias
     // ============================================================
@@ -2119,11 +2147,11 @@ function createTreeInstances(cells, targetBiome = null) {
     // Descomentar después de verificar que el centrado funciona
     const rotationY = 0; // Math.random() * Math.PI * 2;
     const scale = 1.0; // randomInRange(0.9, 1.1);
-    
+
     // Versión con rotación/escala (descomentar cuando el centrado funcione):
     // const rotationY = Math.random() * Math.PI * 2;
     // const scale = randomInRange(0.9, 1.1);
-    
+
     // ============================================================
     // CONSTRUCCIÓN DE LA MATRIZ MODELO (igual que el hexágono)
     // ============================================================
@@ -2144,10 +2172,10 @@ function createTreeInstances(cells, targetBiome = null) {
     //   4. translationMatrix = translateMat4(posX, posY, posZ)
     //   5. modelMatrix = multiplyMat4(translationMatrix, localTransform)
     //      Resultado: translation * rotation * scale
-    
+
     // PASO 1: Crear matriz de escala (igual que el hexágono)
     const scaleMatrix = scaleMat4(scale, scale, scale);
-    
+
     // PASO 2: Crear matriz de rotación alrededor del eje Y
     const cosR = Math.cos(rotationY);
     const sinR = Math.sin(rotationY);
@@ -2157,22 +2185,22 @@ function createTreeInstances(cells, targetBiome = null) {
       -sinR, 0, cosR, 0,
       0, 0, 0, 1
     ]);
-    
+
     // PASO 3: Combinar rotación y escala (rotation * scale)
     // Esto aplica primero la escala, luego la rotación, ambas alrededor del origen
     const localTransform = multiplyMat4(rotationMatrix, scaleMatrix);
-    
+
     // PASO 4: Crear matriz de traslación (igual que el hexágono)
     // Esta traslación mueve el centro del árbol (origen local) a la posición final
     const translationMatrix = translateMat4(posX, posY, posZ);
-    
+
     // PASO 5: Combinar traslación con transformaciones locales (igual que el hexágono)
     // translation * (rotation * scale) = translation * rotation * scale
     const modelMatrix = multiplyMat4(translationMatrix, localTransform);
-    
+
     // RESULTADO: El árbol está perfectamente centrado en (posX, posY, posZ)
     // porque seguimos exactamente el mismo patrón que el hexágono
-    
+
     treeInstances.push({
       modelMatrix: modelMatrix
     });
@@ -2196,37 +2224,37 @@ function createSheepInstances(cells, targetBiome = null) {
   if (!targetBiome) {
     targetBiome = getActiveBiome();
   }
-  
+
   const sheepInstances = [];
   let validCells = 0;
   let skippedBorder = 0;
   let skippedNoHeight = 0;
-  
+
   // Obtener la densidad de ovejas del bioma (cada bioma puede tener su propia densidad)
   const sheepDensity = targetBiome.sheepDensity !== undefined ? targetBiome.sheepDensity : SHEEP_DENSITY;
-  
+
   // MARGEN DE SEGURIDAD: Excluir celdas muy cerca del borde para evitar ovejas fuera del terreno
   // El modelo de oveja puede extenderse un poco fuera del hexágono, así que dejamos un margen
   const SAFE_MARGIN = 1; // Excluir celdas a menos de 1 unidad del borde
-  
+
   for (const cell of cells) {
     // Solo generar ovejas en celdas del bioma objetivo
     if (cell.biome !== targetBiome) {
       continue;
     }
-    
+
     // FILTRAR: Saltar celdas de agua (no hay ovejas en el agua)
     if (cell.isWater) {
       continue; // Esta celda es agua, no poner oveja
     }
-    
+
     // FILTRAR: No generar ovejas en celdas ya ocupadas por árboles
     if (cell.occupied) {
       continue;
     }
-    
+
     validCells++;
-    
+
     // Validar que la celda esté DENTRO del radio con margen de seguridad
     // Esto evita que las ovejas aparezcan fuera del terreno
     const distance = hexDistance(0, 0, cell.q, cell.r);
@@ -2234,31 +2262,31 @@ function createSheepInstances(cells, targetBiome = null) {
       skippedBorder++;
       continue; // Saltar celdas cerca del borde
     }
-    
+
     // Validar que la altura sea válida
     if (!cell.height || cell.height <= 0) {
       skippedNoHeight++;
       continue;
     }
-    
+
     // Validar que worldX y worldZ existan y sean números válidos
     if (typeof cell.worldX !== 'number' || typeof cell.worldZ !== 'number' ||
-        isNaN(cell.worldX) || isNaN(cell.worldZ) ||
-        !isFinite(cell.worldX) || !isFinite(cell.worldZ)) {
+      isNaN(cell.worldX) || isNaN(cell.worldZ) ||
+      !isFinite(cell.worldX) || !isFinite(cell.worldZ)) {
       console.warn(`  ⚠️ Celda (${cell.q}, ${cell.r}) tiene coordenadas inválidas, saltando`);
       continue;
     }
-    
-      // Decidir aleatoriamente si esta celda debe tener una oveja
-      // Usar la densidad del bioma (cada bioma puede tener diferente densidad)
-      if (Math.random() >= sheepDensity) {
-        continue;
-      }
-    
+
+    // Decidir aleatoriamente si esta celda debe tener una oveja
+    // Usar la densidad del bioma (cada bioma puede tener diferente densidad)
+    if (Math.random() >= sheepDensity) {
+      continue;
+    }
+
     // MARCADO DE CELDA OCUPADA: Marcar esta celda como ocupada por una oveja
     // Esto evita que los árboles se generen en el mismo hexágono
     cell.occupied = true;
-    
+
     // Posición: usar EXACTAMENTE los mismos datos que usan los hexágonos y árboles
     // Los hexágonos usan: x = cell.worldX, z = cell.worldZ, y = 0 (base)
     // Los árboles usan: posX = cell.worldX, posZ = cell.worldZ, posY = actualHexHeight
@@ -2275,7 +2303,7 @@ function createSheepInstances(cells, targetBiome = null) {
     const visualHeight = cell.height * HEIGHT_UNIT;  // Altura visual calculada
     const actualHexHeight = HEX_BASE_HEIGHT * visualHeight;  // Altura real del hexágono = baseHeight * visualHeight
     const posY = actualHexHeight;  // Oveja sobre la tapa del hexágono (igual que árbol)
-    
+
     // Log detallado para debuggear (solo las primeras 5 ovejas)
     if (sheepInstances.length < 5) {
       console.log(`  Oveja ${sheepInstances.length + 1}:`);
@@ -2283,19 +2311,19 @@ function createSheepInstances(cells, targetBiome = null) {
       console.log(`    - Posición hexágono: (${posX.toFixed(6)}, 0, ${posZ.toFixed(6)})`);
       console.log(`    - Posición oveja: (${posX.toFixed(6)}, ${posY.toFixed(6)}, ${posZ.toFixed(6)})`);
     }
-    
+
     // Escala - reducir un poco para asegurar que quepa dentro del hexágono
     const scale = 1.2;
-    
+
     // Construir matriz modelo: EXACTAMENTE igual que los árboles
     // IMPORTANTE: Usar exactamente el mismo patrón que los árboles para garantizar el mismo centrado
     // Los árboles usan: translation * (rotation * scale)
     // Cuando rotationY = 0, esto se reduce a: translation * (identity * scale) = translation * scale
     // Pero usamos el mismo patrón para evitar diferencias de precisión numérica
-    
+
     // PASO 1: Crear matriz de escala (igual que los árboles)
     const scaleMatrix = scaleMat4(scale, scale, scale);
-    
+
     // PASO 2: Crear matriz de rotación (rotationY = 0 para ovejas)
     const rotationY = 0;
     const cosR = Math.cos(rotationY);
@@ -2306,22 +2334,22 @@ function createSheepInstances(cells, targetBiome = null) {
       -sinR, 0, cosR, 0,
       0, 0, 0, 1
     ]);
-    
+
     // PASO 3: Combinar rotación y escala (rotation * scale)
     const localTransform = multiplyMat4(rotationMatrix, scaleMatrix);
-    
+
     // PASO 4: Crear matriz de traslación (igual que los árboles)
     const translationMatrix = translateMat4(posX, posY, posZ);
-    
+
     // PASO 5: Combinar traslación con transformaciones locales (EXACTAMENTE igual que los árboles)
     // translation * (rotation * scale) = translation * scale (cuando rotationY = 0)
     const modelMatrix = multiplyMat4(translationMatrix, localTransform);
-    
+
     sheepInstances.push({
       modelMatrix: modelMatrix
     });
   }
-  
+
   const biomeName = targetBiome.name || "Unknown";
   console.log(`✓ ${sheepInstances.length} ovejas instanciadas sobre ${validCells} celdas válidas de ${biomeName} (densidad: ${(sheepDensity * 100).toFixed(1)}%)`);
   if (skippedBorder > 0) console.log(`  (saltadas ${skippedBorder} celdas cerca del borde por seguridad)`);
@@ -2355,28 +2383,33 @@ function createSheepInstances(cells, targetBiome = null) {
  */
 async function main() {
   console.log('Iniciando aplicación WebGL...');
-  
+
   // Paso 1: Inicializar WebGL (función de render/gl.js)
   const webgl = initWebGL('glCanvas');
   if (!webgl) {
     return;
   }
   const { gl } = webgl;
-  
-  // Habilita el depth testing para renderizado 3D correcto
-  // Esto permite que los objetos más cercanos se dibujen sobre los más lejanos
+
+  // Configuraciones globales de WebGL
   gl.enable(gl.DEPTH_TEST);
-  
-  // Limpia también el buffer de profundidad
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  
+  gl.depthFunc(gl.LEQUAL);
+  gl.enable(gl.CULL_FACE); // Opcional: mejora rendimiento no dibujando caras traseras
+
+  // Habilitar mezcla (blending) para transparencias (sombras, agua futura)
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  // Color de fondo (cielo)
+  gl.clearColor(0.53, 0.81, 0.92, 1.0); // Azul cielo suave
+
   // Paso 2: Crear programa de shaders (función de render/gl.js)
   const program = createProgram(gl, vertexShaderSource, fragmentShaderSource);
   if (!program) {
     console.error('Error: No se pudo crear el programa de shaders');
     return;
   }
-  
+
   // Paso 3: Obtener el bioma activo (Grass o Forest)
   // El bioma se selecciona usando la constante ACTIVE_BIOME
   // getActiveBiome() retorna el bioma correspondiente (grassBiome o forestBiome)
@@ -2390,7 +2423,7 @@ async function main() {
   // - isWater: marcado por computeColor si la celda es agua (opcional, solo Forest por ahora)
   // Genera un terreno hexagonal completo con radio GRID_RADIUS
   const cells = createCells(activeBiome);
-  
+
   // Paso 5: Crear datos del prisma hexagonal base (altura = 1.0) con normales
   // IMPORTANTE: Usamos HEX_RADIUS_WORLD como única fuente de verdad para el tamaño del hexágono
   // Este mismo valor se usa en hexToPixel3D para calcular las posiciones de los centros
@@ -2398,7 +2431,7 @@ async function main() {
   // de la grilla, creando un mosaico perfecto sin huecos ni solapamientos
   const baseHeight = 0.5; // Altura base del prisma (se escala según cell.height)
   const prismData = createHexagonPrismData(HEX_RADIUS_WORLD, baseHeight);
-  
+
   // Paso 6: Crear buffers separados para posiciones y normales
   // Cada buffer guarda: 24 triángulos × 3 vértices × 3 componentes = 216 floats totales
   // Estos buffers se reutilizan para todos los prismas de la grilla
@@ -2406,18 +2439,18 @@ async function main() {
   // Las normales se transforman usando la matriz normal (inversa transpuesta)
   const positionBuffer = createBuffer(gl, prismData.positions);
   const normalBuffer = createBuffer(gl, prismData.normals);
-  
+
   // Paso 7: Crear mesh del árbol programáticamente
   // El árbol se genera en código (sin modelos externos)
   // Está compuesto por un tronco hexagonal y una copa de 3 conos apilados
   const treeMesh = createTreeMesh(gl);
-  
+
   // Paso 8: Cargar modelo OBJ de oveja con su material MTL
   // El modelo se carga desde objects/sheep.obj y objects/sheep.mtl
   // loadObjWithMtl parsea el OBJ separado por materiales (White=lana, Black=cabeza/patas)
   // Retorna buffers WebGL separados para cada material
   let sheepMesh = null;
-  
+
   try {
     console.log('Cargando modelo de oveja...');
     const sheepData = await loadObjWithMtl(gl, "objects/Sheep.obj", "objects/Sheep.mtl");
@@ -2435,14 +2468,14 @@ async function main() {
     console.warn('  Continuando sin ovejas...');
     sheepMesh = null;
   }
-  
+
   // Paso 9: Crear instancias de árboles distribuidas sobre el terreno
   // Solo las celdas del bioma activo pueden tener árboles
   // La densidad está controlada por biome.treeDensity (cada bioma tiene su propia densidad)
   // Las posiciones (x, z) se usan directamente de las celdas (ya calculadas)
   // No se generan árboles en celdas de agua
   const treeInstances = createTreeInstances(cells, activeBiome);
-  
+
   // Paso 10: Crear instancias de ovejas distribuidas sobre el terreno
   // Solo las celdas del bioma activo pueden tener ovejas
   // La densidad está controlada por biome.sheepDensity (cada bioma tiene su propia densidad)
@@ -2450,7 +2483,7 @@ async function main() {
   // Cada oveja está perfectamente centrada en un hexágono usando cell.worldX y cell.worldZ
   // No se generan ovejas en celdas de agua
   const sheepInstances = createSheepInstances(cells, activeBiome);
-  
+
   // Paso 11: Ajustar tamaño del canvas a pantalla completa
   // El canvas debe usar toda la ventana del navegador
   function resizeCanvas() {
@@ -2462,19 +2495,19 @@ async function main() {
     return perspective(60, newAspect, 0.1, 100.0);
   }
   resizeCanvas(); // Ajustar tamaño inicial
-  
+
   // Actualizar el título de la pestaña del navegador con el nombre del bioma activo
   const pageTitle = document.getElementById('pageTitle');
   if (pageTitle) {
     pageTitle.textContent = activeBiome.name || 'Bioma';
   }
-  
+
   // Actualizar el título visible en pantalla con el nombre del bioma
   const biomeTitle = document.getElementById('biomeTitle');
   if (biomeTitle) {
     biomeTitle.textContent = (activeBiome.name || 'Bioma') + ' Biome';
   }
-  
+
   // Paso 12: Preparar matrices de vista y proyección (compartidas para terreno, árboles y ovejas)
   // Estas matrices se calculan una vez y se usan para todos los objetos
   const terrainSize = GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3) * 2;
@@ -2486,15 +2519,15 @@ async function main() {
   const aspect = webgl.canvas.width / webgl.canvas.height;
   const viewMatrix = lookAt(eye, center, up);
   let projectionMatrix = perspective(60, aspect, 0.1, 100.0);
-  
+
   // Función para redibujar la escena (se llama cuando cambia el tamaño de la ventana)
   function renderScene() {
     // Actualizar matriz de proyección con el nuevo aspect ratio
     projectionMatrix = resizeCanvas();
-    
+
     // Redibujar toda la escena
     drawHexGrid(gl, program, positionBuffer, normalBuffer, webgl.canvas, cells, HEX_RADIUS_WORLD, viewMatrix, projectionMatrix, eye);
-    
+
     // Dibujar árboles
     if (treeInstances.length > 0) {
       const treeCrownColor = activeBiome.name === "Forest" ? TREE_CROWN_COLOR_FOREST : TREE_CROWN_COLOR_GRASS;
@@ -2502,7 +2535,7 @@ async function main() {
         drawTreeWithColor(gl, program, treeMesh, tree.modelMatrix, viewMatrix, projectionMatrix, treeCrownColor);
       }
     }
-    
+
     // Dibujar ovejas
     if (sheepMesh && sheepInstances.length > 0) {
       for (const sheep of sheepInstances) {
@@ -2511,14 +2544,14 @@ async function main() {
       }
     }
   }
-  
+
   // Agregar listener para redimensionar la ventana
   window.addEventListener('resize', renderScene);
-  
+
   // Paso 13: Renderizar la escena inicial (terreno + árboles + ovejas)
   // renderScene() dibuja todo: terreno, árboles y ovejas con las matrices correctas
   renderScene();
-  
+
   console.log('✓ ¡Aplicación iniciada correctamente!');
 }
 

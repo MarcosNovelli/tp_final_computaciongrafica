@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Montana Raytracing</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-family: sans-serif;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body onresize="WindowResize()">
+    <canvas id="canvas"></canvas>
+
+    <div id="controls">
+        <h3>Montana Raytracing</h3>
+        <p>Controls: Click & Drag to Rotate, Scroll to Zoom</p>
+        <label for="biomeSelect">Biome: </label>
+        <select id="biomeSelect">
+            <option value="-1.0">Random</option>
+            <option value="0.0">Mountain</option>
+            <option value="1.0">Desert</option>
+            <option value="2.0">Clay</option>
+            <option value="3.0">Jungle</option>
+        </select>
+        <br>
+        <label>Grid Radius: <span id="gridSizeVal">0</span></label>
+        <button id="btnLess">-</button>
+        <button id="btnMore">+</button>
+    </div>
+
+    <!-- Shaders -->
+    <!-- We will load shaders via fetch in project.js, so no script tags for shaders here -->
+
+    <!-- Scripts -->
+    <script src="raytracer.js"></script>
+    <script src="project.js"></script>
+</body>
+
+</html>
