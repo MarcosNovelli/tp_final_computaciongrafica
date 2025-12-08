@@ -73,12 +73,12 @@ const GRID_RADIUS = 8;
  * NOTA: Este valor determina TODO el terreno. Para mezclar biomas (islas de biomas diferentes),
  * necesitarías una lógica más compleja que está fuera del alcance de este paso.
  */
-const ACTIVE_BIOME = "Rock"; // Cambiar entre "Grass", "Forest" y "Rock"
+const ACTIVE_BIOME = "Clay"; // Cambiar entre "Grass", "Forest", "Rock" y "Clay"
 
 /**
  * Obtiene el bioma activo actual basado en la constante ACTIVE_BIOME.
  * 
- * @returns {Object} Objeto bioma (grassBiome, forestBiome o rockBiome)
+ * @returns {Object} Objeto bioma (grassBiome, forestBiome, rockBiome o clayBiome)
  */
 function getActiveBiome() {
   switch (ACTIVE_BIOME) {
@@ -86,6 +86,8 @@ function getActiveBiome() {
       return forestBiome;
     case "Rock":
       return rockBiome;
+    case "Clay":
+      return clayBiome;
     default:
       return grassBiome; // Por defecto, usa Grass
   }
@@ -856,7 +858,6 @@ function clamp01(v) {
  * se encuentran en archivos modulares dentro del directorio biomes/:
  * 
  * - biomes/grassBiome.js: Bioma Grass con computeGrassColor()
- * - biomes/snowBiome.js: Bioma Snow (estructura preparada)
  * - biomes/desertBiome.js: Bioma Desert (estructura preparada)
  * 
  * Cada bioma debe tener una propiedad computeColor que es una función
@@ -1137,11 +1138,11 @@ function createCells(biome) {
     console.log(`  - Variación de color: ±${colorVariance}`);
   }
   
-  // DETECCIÓN DE CLUSTERS DE AGUA (solo para bioma Forest)
+  // DETECCIÓN DE CLUSTERS DE AGUA (para biomas Forest y Clay)
   // Después de crear todas las celdas, detectar clusters de agua conectados
   // Solo los clusters grandes (≥6 celdas) se marcan como agua
   // Esto evita que aparezcan "pozos random" individuales
-  if (biome.name === "Forest") {
+  if (biome.name === "Forest" || biome.name === "Clay") {
     const MIN_WATER_CLUSTER = 6; // Tamaño mínimo del cluster para ser considerado agua
     detectWaterClusters(cells, MIN_WATER_CLUSTER);
     
@@ -2034,6 +2035,22 @@ function createTreeInstances(cells, targetBiome = null) {
       // Solo generar árboles en la zona verde (heightNorm < 0.25)
       if (cell.heightNorm >= 0.25) {
         continue; // Esta celda está en zona rocosa o nevada, no poner árbol
+      }
+    }
+    
+    // FILTRAR ESPECIAL PARA BIOMA CLAY:
+    // En el bioma Clay, solo generar árboles en las colinas altas de pasto
+    // Las colinas altas corresponden a heightNorm >= 0.8 (últimos 20% de la altura)
+    // No generar árboles en roca (70-80%) ni en cobre (0-70%)
+    if (cell.biome.name === "Clay") {
+      // Si no tiene heightNorm, calcularlo
+      if (cell.heightNorm === null || cell.heightNorm === undefined) {
+        const heightRange = cell.biome.maxHeight - cell.biome.minHeight || 1.0;
+        cell.heightNorm = (cell.height - cell.biome.minHeight) / heightRange;
+      }
+      // Solo generar árboles en las colinas altas de pasto (heightNorm >= 0.8)
+      if (cell.heightNorm < 0.8) {
+        continue; // Esta celda está en zona de cobre o roca, no poner árbol
       }
     }
     
