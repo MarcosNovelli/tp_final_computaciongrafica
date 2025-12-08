@@ -73,18 +73,21 @@ const GRID_RADIUS = 8;
  * NOTA: Este valor determina TODO el terreno. Para mezclar biomas (islas de biomas diferentes),
  * necesitarías una lógica más compleja que está fuera del alcance de este paso.
  */
-const ACTIVE_BIOME = "Forest"; // Cambiar entre "Grass" y "Forest"
+const ACTIVE_BIOME = "Rock"; // Cambiar entre "Grass", "Forest" y "Rock"
 
 /**
  * Obtiene el bioma activo actual basado en la constante ACTIVE_BIOME.
  * 
- * @returns {Object} Objeto bioma (grassBiome o forestBiome)
+ * @returns {Object} Objeto bioma (grassBiome, forestBiome o rockBiome)
  */
 function getActiveBiome() {
-  if (ACTIVE_BIOME === "Forest") {
-    return forestBiome;
-  } else {
-    return grassBiome; // Por defecto, usa Grass
+  switch (ACTIVE_BIOME) {
+    case "Forest":
+      return forestBiome;
+    case "Rock":
+      return rockBiome;
+    default:
+      return grassBiome; // Por defecto, usa Grass
   }
 }
 
@@ -339,11 +342,13 @@ const vertexShaderSource = `
   
   varying vec3 v_normal;
   varying vec3 v_position;
+  varying vec3 vWorldPosition;  // Posición en espacio del mundo (para cálculo del view direction)
   
   void main() {
-    // Transforma la posición del vértice
+    // Transforma la posición del vértice al espacio del mundo
     vec4 worldPosition = u_model * vec4(a_position, 1.0);
-    v_position = worldPosition.xyz; // Posición en espacio del mundo
+    v_position = worldPosition.xyz; // Posición en espacio del mundo (mantenido por compatibilidad)
+    vWorldPosition = worldPosition.xyz; // Posición en espacio del mundo para el fragment shader
     
     // Transforma la normal usando la matriz normal (inversa transpuesta del model)
     // Extraemos la parte 3x3 de u_normalMatrix multiplicando por mat3
@@ -366,12 +371,13 @@ const vertexShaderSource = `
 const fragmentShaderSource = `
   precision mediump float;
   
-  uniform vec3 u_color;      // Color RGB del hexágono (pasado desde la aplicación)
-  uniform float uIsWater;    // Bandera: 1.0 si es agua, 0.0 si es terreno
-  uniform vec3 u_cameraPos;  // Posición de la cámara en espacio del mundo
+  uniform vec3 u_color;           // Color RGB del hexágono (pasado desde la aplicación)
+  uniform float uIsWater;          // Bandera: 1.0 si es agua, 0.0 si es terreno
+  uniform vec3 uCameraPosition;    // Posición de la cámara en espacio del mundo
   
-  varying vec3 v_normal;     // Normal transformada (interpolada entre vértices)
-  varying vec3 v_position;   // Posición en espacio del mundo (interpolada)
+  varying vec3 v_normal;           // Normal transformada (interpolada entre vértices)
+  varying vec3 v_position;         // Posición en espacio del mundo (interpolada, mantenido por compatibilidad)
+  varying vec3 vWorldPosition;     // Posición en espacio del mundo (para cálculo correcto del view direction)
   
   void main() {
     // Normaliza la normal interpolada
@@ -381,54 +387,68 @@ const fragmentShaderSource = `
     // Vector apuntando hacia la luz, normalizado
     vec3 L = normalize(vec3(0.6, 1.0, 0.4));
     
-    // Dirección de la vista (desde el fragmento hacia la cámara)
+    // Dirección de la vista (viewDir) - CRÍTICO para el cálculo correcto del brillo especular del agua
     // Se calcula desde la posición del fragmento hacia la posición de la cámara
-    // Esto es necesario para el cálculo correcto del brillo especular del agua
-    vec3 V = normalize(u_cameraPos - v_position);
+    // vWorldPosition viene del vertex shader y representa la posición del fragmento en espacio del mundo
+    // uCameraPosition es la posición real de la cámara en espacio del mundo
+    vec3 V = normalize(uCameraPosition - vWorldPosition);
+    
+    // MATERIAL ESPECIAL PARA AGUA:
+    // Cuando uIsWater > 0.5, el fragmento es parte de una celda de agua
+    // El agua tiene una iluminación diferente con reflejos especulares sutiles
+    if (uIsWater > 0.5) {
+      // ILUMINACIÓN PARA AGUA:
+      // El color base del agua debe ser claramente visible
+      // Reflejos especulares sutiles que no oculten el color
+      
+      // Color base del agua (pasado desde el CPU, puede variar según el bioma)
+      vec3 base = u_color;
+      
+      // Iluminación difusa más conservadora para que el color sea visible
+      // Calculamos el producto punto entre la normal y la dirección de la luz
+      float lambert = max(dot(N, L), 0.0);
+      // Aplicamos una transformación moderada: 40% de brillo base + 50% del lambert
+      // Esto permite que el color base del agua sea claramente visible
+      lambert = 0.4 + lambert * 0.5;
+      
+      // Cálculo del reflejo especular (Phong) - MUY SUTIL
+      // R es el vector reflejado de la luz respecto a la normal
+      // reflect(-L, N) calcula la dirección en la que se reflejaría la luz
+      vec3 R = reflect(-L, N);
+      
+      // Ángulo entre el vector reflejado y la dirección de vista
+      // Cuanto más alineados estén R y V, más brillante será el reflejo
+      // Esto crea el efecto de "highlight" especular típico del agua
+      float specAngle = max(dot(R, V), 0.0);
+      
+      // Potencia del brillo especular - MUY REDUCIDA para que el color sea visible
+      // pow(specAngle, 48.0) crea un reflejo muy concentrado y sutil
+      // Multiplicado por 0.2 para que sea apenas visible y no oculte el color
+      float spec = pow(specAngle, 48.0) * 0.2;
+      
+      // Mezcla final para el agua:
+      // - Color base multiplicado por iluminación moderada (50% ambiente + 70% difusa)
+      // - Reflejo especular MUY SUTIL sumado (brilla sutilmente sobre el color)
+      gl_FragColor = vec4(base * (0.5 + lambert * 0.7) + spec, 1.0);
+      return;
+    }
+    
+    // ILUMINACIÓN PARA TERRENO (no agua):
+    // Usamos iluminación Lambertiana estándar sin reflejos especulares
+    // Estilo render Blender: iluminación más brillante y contrastada
     
     // Color base del hexágono
     vec3 base = u_color;
     
-    // Inicializar iluminación Lambertiana y especular
+    // Cálculo de iluminación Lambertiana
+    // Producto punto entre normal y dirección de la luz
+    // max(..., 0.0) asegura que no haya iluminación negativa
     float lambert = max(dot(N, L), 0.0);
-    float spec = 0.0;
     
-    // MATERIAL ESPECIAL PARA AGUA:
-    // Cuando uIsWater > 0.5, el fragmento es parte de una celda de agua
-    // El agua tiene un comportamiento de iluminación diferente:
-    // - Color base OSCURO (agua profunda) - visible y dominante
-    // - Brillo especular (reflejos) SUTIL sobre el color oscuro
-    if (uIsWater > 0.5) {
-      // AGUA: Color oscuro con reflejos especulares sutiles
-      // Mantener el lambert normal para que el color base del agua sea visible
-      lambert = 0.35 + lambert * 0.5; // Iluminación moderada para ver el color azul oscuro
-      
-      // Cálculo del reflejo especular (Phong) - MUY SUTIL
-      // R es el vector reflejado de la luz respecto a la normal
-      vec3 R = reflect(-L, N);
-      
-      // Ángulo entre el vector reflejado y la dirección de vista
-      // Cuanto más alineados estén, más brillante será el reflejo
-      float specAngle = max(dot(R, V), 0.0);
-      
-      // Potencia del brillo especular (48 = reflejos muy concentrados y sutiles)
-      // Multiplicado por 0.3 para hacer el efecto MUY SUTIL - apenas visible
-      spec = pow(specAngle, 48.0) * 0.3;
-      
-      // Brillo base muy sutil para el agua - solo un toque para distinguirlo del terreno
-      float waterGlow = 0.05; // Brillo base muy sutil
-      spec += waterGlow;
-      
-      // Agregar brillo adicional basado en la normal (muy sutil en superficies horizontales)
-      float topBrightness = max(dot(N, vec3(0.0, 1.0, 0.0)), 0.0); // Brillo en tapas superiores
-      spec += topBrightness * 0.08; // Brillo adicional muy sutil en la superficie plana del agua
-    }
-    
-    // Mezcla de color base con iluminación
-    // Para terreno normal: 25% color ambiente + 75% iluminación Lambertiana
-    // Para agua: color oscuro base + brillo especular prominente (el spec se suma después)
-    // El spec se suma directamente al color final para que los reflejos brillen sobre el color oscuro
-    vec3 finalColor = base * (0.25 + lambert * 0.75) + vec3(spec);
+    // Mezcla de color base con iluminación - estilo Blender
+    // 50% color ambiente (más brillante) + 100% iluminación Lambertiana (más contraste)
+    // Esto crea una iluminación más brillante y contrastada, típica de renders de Blender
+    vec3 finalColor = base * (0.5 + lambert * 1.0);
     
     // Output final del fragment shader
     gl_FragColor = vec4(finalColor, 1.0);
@@ -905,8 +925,11 @@ function generateColor(baseColor, colorVariance) {
 function createCells(biome) {
   const cells = [];
   
-  // Extrae parámetros del bioma
-  const { baseColor, minHeight, maxHeight, colorVariance } = biome;
+  // Extrae parámetros del bioma (algunos pueden ser undefined para biomas especiales como Rock)
+  const baseColor = biome.baseColor; // Puede ser undefined para biomas que usan computeColor personalizado
+  const minHeight = biome.minHeight;
+  const maxHeight = biome.maxHeight;
+  const colorVariance = biome.colorVariance;
   
   // Inicializa el generador de ruido Simplex
   // Inicializar SimplexNoise para generar alturas suaves del terreno
@@ -1003,13 +1026,34 @@ function createCells(biome) {
       if (distance > GRID_RADIUS) {
         continue; // Salta esta celda si está fuera del radio
       }
-      // GENERACIÓN DE ALTURA usando ruido 2D:
-      // Usa Simplex Noise para generar alturas suaves y continuas
-      // Hexágonos adyacentes tendrán alturas similares, creando un terreno natural
-      // El ruido se evalúa en (q * noiseScale, r * noiseScale) y se mapea al rango del bioma
-      // Usar heightNoiseScale del bioma si está disponible, si no usar el valor por defecto
-      const biomeNoiseScale = biome.heightNoiseScale !== undefined ? biome.heightNoiseScale : noiseScale;
-      const height = generateHeight(q, r, biome, noiseGenerator, biomeNoiseScale);
+      // GENERACIÓN DE ALTURA:
+      // Algunos biomas tienen su propia función computeHeight (ej: Rock con forma de montaña)
+      // Si el bioma tiene computeHeight, usarla; si no, usar generateHeight estándar con ruido
+      let height;
+      let heightNorm = null; // Algunos biomas necesitan heightNorm para colores (ej: Rock)
+      
+      if (biome.computeHeight && typeof biome.computeHeight === 'function') {
+        // Bioma con función computeHeight personalizada (ej: Rock con forma de montaña)
+        // Esta función puede retornar {height, heightNorm} o solo height
+        const context = { gridRadius: GRID_RADIUS };
+        const result = biome.computeHeight(q, r, noiseGenerator, context);
+        
+        if (typeof result === 'object' && result !== null) {
+          // Si retorna un objeto, puede tener height y heightNorm
+          height = result.height;
+          heightNorm = result.heightNorm !== undefined ? result.heightNorm : null;
+        } else {
+          // Si retorna un número directamente, usar ese valor
+          height = result;
+        }
+      } else {
+        // Bioma estándar: usar generateHeight con ruido Simplex
+        // Usa Simplex Noise para generar alturas suaves y continuas
+        // Hexágonos adyacentes tendrán alturas similares, creando un terreno natural
+        // El ruido se evalúa en (q * noiseScale, r * noiseScale) y se mapea al rango del bioma
+        const biomeNoiseScale = biome.heightNoiseScale !== undefined ? biome.heightNoiseScale : noiseScale;
+        height = generateHeight(q, r, biome, noiseGenerator, biomeNoiseScale);
+      }
       
       // Calcular la posición (x, z) del centro del hexágono en el mundo
       // Esto viene directamente de la función hexToPixel3D (equivalente a axialToWorld)
@@ -1025,11 +1069,19 @@ function createCells(biome) {
         worldX: pos.x,  // Posición X del centro del hexágono en el mundo (viene de hexToPixel3D)
         worldZ: pos.z,  // Posición Z del centro del hexágono en el mundo (viene de hexToPixel3D)
         height: height,
+        heightNorm: heightNorm,  // Altura normalizada (0..1) - solo para biomas que la usan (ej: Rock)
         biome: biome,  // Guardar referencia al bioma para filtrado
         candidateWater: false, // Por defecto, no es candidato a agua (se puede cambiar en computeColor)
         isWater: false, // Se decidirá después mediante detección de clusters
         waterHeight: null // Altura específica para agua (se asignará en detectWaterClusters)
       };
+      
+      // Si heightNorm no se calculó arriba pero el bioma lo necesita, calcularlo ahora
+      if (cell.heightNorm === null && biome.computeColor) {
+        // Calcular heightNorm para biomas que lo necesitan (como Rock)
+        const heightRange = biome.maxHeight - biome.minHeight || 1.0;
+        cell.heightNorm = (height - biome.minHeight) / heightRange;
+      }
       
       // GENERACIÓN DE COLOR usando parámetros del bioma:
       // Cada bioma tiene su propia función computeColor específica
@@ -1037,13 +1089,32 @@ function createCells(biome) {
       // IMPORTANTE: Pasamos la celda como tercer parámetro para que computeColor pueda marcarla como agua
       let color;
       if (biome.computeColor && typeof biome.computeColor === 'function') {
-        // Usa la función específica del bioma (ej: computeGrassColor para Grass, computeForestColor para Forest)
-        // Esta función puede incluir lógica personalizada como ajuste por altura o detección de agua
-        // La celda se pasa como tercer parámetro para permitir modificar isWater
-        color = biome.computeColor(height, biome, cell);
+        // Usa la función específica del bioma (ej: computeGrassColor, computeForestColor, computeRockColor)
+        // Algunos biomas usan height (Grass, Forest), otros usan heightNorm (Rock)
+        // La función debe adaptarse a la firma esperada
+        if (biome.name === "Rock") {
+          // Bioma Rock: usa heightNorm directamente
+          // Si heightNorm no está disponible, calcularlo ahora
+          if (cell.heightNorm === null || cell.heightNorm === undefined) {
+            const heightRange = biome.maxHeight - biome.minHeight || 1.0;
+            cell.heightNorm = (height - biome.minHeight) / heightRange;
+          }
+          color = biome.computeColor(cell.heightNorm);
+        } else {
+          // Otros biomas: usa height, biome y cell (firma estándar)
+          color = biome.computeColor(height, biome, cell);
+        }
       } else {
         // Fallback: usa la función genérica para biomas sin función personalizada
         color = generateColor(baseColor, colorVariance);
+      }
+      
+      // Validar que el color sea válido (array de 3 números)
+      if (!color || !Array.isArray(color) || color.length !== 3 || 
+          typeof color[0] !== 'number' || typeof color[1] !== 'number' || typeof color[2] !== 'number') {
+        console.error(`Error: Color inválido para celda (${q}, ${r}):`, color);
+        // Usar color por defecto si hay error
+        color = [0.5, 0.5, 0.5]; // Gris por defecto
       }
       
       // Asignar el color calculado a la celda
@@ -1056,8 +1127,15 @@ function createCells(biome) {
   
   console.log(`✓ ${cells.length} celdas creadas con bioma (radio hexagonal: ${GRID_RADIUS}):`);
   console.log(`  - Alturas: ${minHeight} a ${maxHeight}`);
-  console.log(`  - Color base: [${baseColor[0].toFixed(2)}, ${baseColor[1].toFixed(2)}, ${baseColor[2].toFixed(2)}]`);
-  console.log(`  - Variación de color: ±${colorVariance}`);
+  // Solo mostrar color base si el bioma lo tiene (Rock no tiene baseColor)
+  if (baseColor && Array.isArray(baseColor) && baseColor.length >= 3) {
+    console.log(`  - Color base: [${baseColor[0].toFixed(2)}, ${baseColor[1].toFixed(2)}, ${baseColor[2].toFixed(2)}]`);
+  } else {
+    console.log(`  - Color: calculado dinámicamente por computeColor`);
+  }
+  if (colorVariance !== undefined) {
+    console.log(`  - Variación de color: ±${colorVariance}`);
+  }
   
   // DETECCIÓN DE CLUSTERS DE AGUA (solo para bioma Forest)
   // Después de crear todas las celdas, detectar clusters de agua conectados
@@ -1294,8 +1372,8 @@ function detectWaterClusters(cells, minClusterSize = 6) {
           // Esto crea una transición más suave con las celdas de tierra adyacentes
           // Usar minHeight - 0.1 en lugar de -0.2 para transición más suave
           clusterCell.waterHeight = clusterCell.biome.minHeight - 0.1;
-          // Asignar color de agua (azul oscuro para que parezca agua profunda)
-          clusterCell.color = [0.06, 0.15, 0.35]; // WATER_COLOR - azul oscuro profundo
+          // Asignar color de agua (azul claro como en la referencia)
+          clusterCell.color = [0.35, 0.45, 0.75]; // WATER_COLOR - azul claro para agua
         }
       } else {
         // Cluster pequeño: no es agua, marcar como falso positivo
@@ -1610,7 +1688,7 @@ function drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, heigh
   const normalMatrixLocation = gl.getUniformLocation(program, 'u_normalMatrix');
   const colorLocation = gl.getUniformLocation(program, 'u_color');
   const isWaterLocation = gl.getUniformLocation(program, 'uIsWater');
-  const cameraPosLocation = gl.getUniformLocation(program, 'u_cameraPos');
+  const cameraPosLocation = gl.getUniformLocation(program, 'uCameraPosition');
   
   // Configura las matrices en el shader
   gl.uniformMatrix4fv(modelLocation, false, modelMatrix);
@@ -1625,6 +1703,7 @@ function drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, heigh
   gl.uniform1f(isWaterLocation, isWater ? 1.0 : 0.0);
   
   // Configura la posición de la cámara (ya se configuró en drawHexGrid, pero lo establecemos aquí también por si se llama directamente)
+  // El shader usa uCameraPosition para calcular correctamente el view direction (V)
   if (cameraPosLocation) {
     if (cameraPos) {
       gl.uniform3f(cameraPosLocation, cameraPos[0], cameraPos[1], cameraPos[2]);
@@ -1681,7 +1760,8 @@ function drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, heigh
  */
 function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, hexRadius, viewMatrix, projectionMatrix, cameraPos = null) {
   // Limpia el canvas con color de fondo oscuro
-  clearCanvas(gl, 0.1, 0.1, 0.15, 1.0);
+  // Fondo negro puro estilo Blender
+  clearCanvas(gl, 0.0, 0.0, 0.0, 1.0);
   
   // Activa el programa de shaders (solo una vez para todos los prismas)
   gl.useProgram(program);
@@ -1694,7 +1774,8 @@ function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, h
   if (!finalViewMatrix || !finalProjectionMatrix) {
     // Calcula el tamaño del terreno para ajustar la cámara
     const terrainSize = GRID_RADIUS * hexRadius * Math.sqrt(3) * 2;
-    const cameraDistance = terrainSize * 1.2;
+    // Cámara más cerca del terreno (reducido de 1.2 a 0.85 para acercar la vista)
+    const cameraDistance = terrainSize * 0.85;
     
     const eye = [cameraDistance * 0.7, cameraDistance * 0.8, cameraDistance * 0.7];
     const center = [0, 0, 0];
@@ -1715,8 +1796,9 @@ function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, h
   // Esto asegura que el agua se renderice encima y tenga el efecto especial
   
   // Configurar posición de la cámara en el shader (una vez para todos los hexágonos)
-  // Esto es necesario para el cálculo correcto del view direction en el efecto especular del agua
-  const cameraPosLocation = gl.getUniformLocation(program, 'u_cameraPos');
+  // Esto es necesario para el cálculo correcto del view direction (V) en el efecto especular del agua
+  // El shader usa uCameraPosition (no u_cameraPos) para calcular correctamente los reflejos
+  const cameraPosLocation = gl.getUniformLocation(program, 'uCameraPosition');
   if (cameraPosLocation) {
     if (finalCameraPos) {
       gl.uniform3f(cameraPosLocation, finalCameraPos[0], finalCameraPos[1], finalCameraPos[2]);
@@ -1937,6 +2019,22 @@ function createTreeInstances(cells, targetBiome = null) {
     // FILTRAR: Saltar celdas de agua (no hay árboles en el agua)
     if (cell.isWater) {
       continue; // Esta celda es agua, no poner árbol
+    }
+    
+    // FILTRAR ESPECIAL PARA BIOMA ROCK:
+    // En el bioma Rock, solo generar árboles en la zona verde (base de la montaña)
+    // La zona verde corresponde a heightNorm < 0.25 (primeros 25% de la altura)
+    // No generar árboles en roca ni nieve (heightNorm >= 0.25)
+    if (cell.biome.name === "Rock") {
+      // Si no tiene heightNorm, calcularlo
+      if (cell.heightNorm === null || cell.heightNorm === undefined) {
+        const heightRange = cell.biome.maxHeight - cell.biome.minHeight || 1.0;
+        cell.heightNorm = (cell.height - cell.biome.minHeight) / heightRange;
+      }
+      // Solo generar árboles en la zona verde (heightNorm < 0.25)
+      if (cell.heightNorm >= 0.25) {
+        continue; // Esta celda está en zona rocosa o nevada, no poner árbol
+      }
     }
     
     biomeCellsCount++;
@@ -2336,79 +2434,73 @@ async function main() {
   // No se generan ovejas en celdas de agua
   const sheepInstances = createSheepInstances(cells, activeBiome);
   
-  // Paso 11: Preparar matrices de vista y proyección (compartidas para terreno, árboles y ovejas)
+  // Paso 11: Ajustar tamaño del canvas a pantalla completa
+  // El canvas debe usar toda la ventana del navegador
+  function resizeCanvas() {
+    webgl.canvas.width = window.innerWidth;
+    webgl.canvas.height = window.innerHeight;
+    gl.viewport(0, 0, webgl.canvas.width, webgl.canvas.height);
+    // Recalcular la matriz de proyección con el nuevo aspect ratio
+    const newAspect = webgl.canvas.width / webgl.canvas.height;
+    return perspective(60, newAspect, 0.1, 100.0);
+  }
+  resizeCanvas(); // Ajustar tamaño inicial
+  
+  // Actualizar el título de la pestaña del navegador con el nombre del bioma activo
+  const pageTitle = document.getElementById('pageTitle');
+  if (pageTitle) {
+    pageTitle.textContent = activeBiome.name || 'Bioma';
+  }
+  
+  // Actualizar el título visible en pantalla con el nombre del bioma
+  const biomeTitle = document.getElementById('biomeTitle');
+  if (biomeTitle) {
+    biomeTitle.textContent = (activeBiome.name || 'Bioma') + ' Biome';
+  }
+  
+  // Paso 12: Preparar matrices de vista y proyección (compartidas para terreno, árboles y ovejas)
   // Estas matrices se calculan una vez y se usan para todos los objetos
   const terrainSize = GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3) * 2;
-  const cameraDistance = terrainSize * 1.2;
+  // Cámara más cerca del terreno (reducido de 1.2 a 0.85 para acercar la vista)
+  const cameraDistance = terrainSize * 0.85;
   const eye = [cameraDistance * 0.7, cameraDistance * 0.8, cameraDistance * 0.7];
   const center = [0, 0, 0];
   const up = [0, 1, 0];
   const aspect = webgl.canvas.width / webgl.canvas.height;
   const viewMatrix = lookAt(eye, center, up);
-  const projectionMatrix = perspective(60, aspect, 0.1, 100.0);
+  let projectionMatrix = perspective(60, aspect, 0.1, 100.0);
   
-  // Paso 12: Dibujar el terreno primero (hexágonos)
-  // El terreno se dibuja antes que los objetos para que queden encima visualmente
-  drawHexGrid(gl, program, positionBuffer, normalBuffer, webgl.canvas, cells, HEX_RADIUS_WORLD, viewMatrix, projectionMatrix, eye);
-  
-  // Paso 13: Dibujar todos los árboles encima del terreno
-  // Cada árbol se renderiza usando su matriz modelo individual (con rotación y escala aleatorias)
-  // Todos los árboles comparten el mismo mesh (treeMesh) pero tienen diferentes transformaciones
-  // Los árboles se dibujan con colores diferentes para tronco (marrón) y copa (verde)
-  // El color de la copa varía según el bioma: más oscuro en Forest (pinos)
-  if (treeInstances.length > 0) {
-    // Seleccionar el color de la copa según el bioma activo
-    const treeCrownColor = activeBiome.name === "Forest" 
-      ? TREE_CROWN_COLOR_FOREST 
-      : TREE_CROWN_COLOR_GRASS;
+  // Función para redibujar la escena (se llama cuando cambia el tamaño de la ventana)
+  function renderScene() {
+    // Actualizar matriz de proyección con el nuevo aspect ratio
+    projectionMatrix = resizeCanvas();
     
-    for (const tree of treeInstances) {
-      // drawTreeWithColor dibuja tanto el tronco como la copa con sus colores respectivos
-      // Pasa el color de la copa personalizado según el bioma
-      drawTreeWithColor(gl, program, treeMesh, tree.modelMatrix, viewMatrix, projectionMatrix, treeCrownColor);
+    // Redibujar toda la escena
+    drawHexGrid(gl, program, positionBuffer, normalBuffer, webgl.canvas, cells, HEX_RADIUS_WORLD, viewMatrix, projectionMatrix, eye);
+    
+    // Dibujar árboles
+    if (treeInstances.length > 0) {
+      const treeCrownColor = activeBiome.name === "Forest" ? TREE_CROWN_COLOR_FOREST : TREE_CROWN_COLOR_GRASS;
+      for (const tree of treeInstances) {
+        drawTreeWithColor(gl, program, treeMesh, tree.modelMatrix, viewMatrix, projectionMatrix, treeCrownColor);
+      }
     }
-    const colorName = activeBiome.name === "Forest" ? "verde muy oscuro (pinos)" : "verde oscuro";
-    console.log(`✓ ${treeInstances.length} árboles renderizados (tronco marrón + copa ${colorName})`);
+    
+    // Dibujar ovejas
+    if (sheepMesh && sheepInstances.length > 0) {
+      for (const sheep of sheepInstances) {
+        drawMesh(gl, program, sheepMesh.white.positionBuffer, sheepMesh.white.normalBuffer, sheepMesh.white.indexBuffer, sheepMesh.white.indexCount, sheep.modelMatrix, viewMatrix, projectionMatrix, [0.95, 0.95, 0.95], 0, false);
+        drawMesh(gl, program, sheepMesh.black.positionBuffer, sheepMesh.black.normalBuffer, sheepMesh.black.indexBuffer, sheepMesh.black.indexCount, sheep.modelMatrix, viewMatrix, projectionMatrix, [0.2, 0.2, 0.2], 0, false);
+      }
+    }
   }
   
-  // Paso 14: Dibujar todas las ovejas encima del terreno
-  // Cada oveja se renderiza usando su matriz modelo individual (con rotación y escala aleatorias)
-  // Todas las ovejas comparten el mismo mesh (sheepMesh) pero tienen diferentes transformaciones
-  // Las ovejas se dibujan con colores diferentes: lana blanca y cabeza/patas gris oscuro
-  // Solo dibuja si el modelo se cargó correctamente
-  if (sheepMesh && sheepInstances.length > 0) {
-    const whiteColor = [0.95, 0.95, 0.95]; // Blanco para la lana
-    const blackColor = [0.2, 0.2, 0.2];    // Gris oscuro para cabeza y patas
-    
-    for (const sheep of sheepInstances) {
-      // Dibujar la lana (parte White) en blanco
-      drawMesh(
-        gl, program,
-        sheepMesh.white.positionBuffer,
-        sheepMesh.white.normalBuffer,
-        sheepMesh.white.indexBuffer,
-        sheepMesh.white.indexCount,
-        sheep.modelMatrix,
-        viewMatrix,
-        projectionMatrix,
-        whiteColor
-      );
-      
-      // Dibujar la cabeza y patas (parte Black) en gris oscuro
-      drawMesh(
-        gl, program,
-        sheepMesh.black.positionBuffer,
-        sheepMesh.black.normalBuffer,
-        sheepMesh.black.indexBuffer,
-        sheepMesh.black.indexCount,
-        sheep.modelMatrix,
-        viewMatrix,
-        projectionMatrix,
-        blackColor
-      );
-    }
-    console.log(`✓ ${sheepInstances.length} ovejas renderizadas (lana blanca + cabeza/patas gris oscuro)`);
-  }
+  // Agregar listener para redimensionar la ventana
+  window.addEventListener('resize', renderScene);
+  
+  // Paso 13: Renderizar la escena inicial (terreno + árboles + ovejas)
+  // renderScene() dibuja todo: terreno, árboles y ovejas con las matrices correctas
+  renderScene();
   
   console.log('✓ ¡Aplicación iniciada correctamente!');
 }

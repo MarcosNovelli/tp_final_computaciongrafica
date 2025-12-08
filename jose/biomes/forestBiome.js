@@ -128,7 +128,7 @@ function computeForestColor(height, biome, cell = null) {
  * Este color se aplica a las celdas que finalmente se determinan como agua
  * después de la detección de clusters.
  */
-const WATER_COLOR = [0.12, 0.25, 0.6]; // Azul oscuro para el agua
+const WATER_COLOR = [0.106, 0.2, 0.294]; // Azul oscuro para el agua
 
 /**
  * Bioma de Bosque (Forest)
@@ -145,14 +145,14 @@ const WATER_COLOR = [0.12, 0.25, 0.6]; // Azul oscuro para el agua
  */
 const forestBiome = {
   name: "Forest",                              // Nombre del bioma (para identificación)
-  baseColor: [0.3, 0.15, 0.05],              // Marrón terroso del suelo del bosque
+  baseColor: [0.25, 0.15, 0.08],              // Marrón terroso más oscuro (suelo de bosque)
   minHeight: 1,                               // Altura mínima (bajado de 2 a 1 para transiciones más suaves)
   maxHeight: 7,                               // Altura máxima (bajado de 8 a 7 para transiciones más suaves)
   colorVariance: 0.02,                         // Variación de color sutil
   colorVariationProbability: 0.4,              // Probabilidad de variación (40% de celdas)
-  treeDensity: 0.35,                           // 35% de las celdas tendrán árboles (bosque denso)
+  treeDensity: 0.45,                           // 35% de las celdas tendrán árboles (bosque denso)
   sheepDensity: 0.0,                           // Sin ovejas en este bioma
-  heightNoiseScale: 0.30,                      // Escala del ruido para alturas (ajustable)
+  heightNoiseScale: 0.20,                      // Escala del ruido para alturas (ajustable)
   computeColor: computeForestColor             // Función específica para calcular colores
 };
 

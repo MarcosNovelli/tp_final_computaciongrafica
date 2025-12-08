@@ -116,6 +116,7 @@ function computeGrassColor(height, biome) {
  * - Áreas más altas se ven ligeramente más claras
  */
 const grassBiome = {
+  name: "Grass",                             // Nombre del bioma (para identificación)
   baseColor: [0.408, 0.62, 0.223],              // Verde más brillante/lime green como en la imagen de referencia
   minHeight: 1,                             // Altura mínima
   maxHeight: 5,                             // Altura máxima
