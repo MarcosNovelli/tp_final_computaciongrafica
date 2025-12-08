@@ -606,14 +606,15 @@ async function loadObjWithMtl(gl, objUrl, mtlUrl) {
   let verifyBoundingBoxCenterX = (verifyMinX + verifyMaxX) / 2;
   let verifyBoundingBoxCenterZ = (verifyMinZ + verifyMaxZ) / 2;
   
-  // CORRECCIÓN FINAL: Usar el centro de masa para el centrado visual
-  // El centro de masa es más representativo del "centro visual" del modelo, especialmente para modelos asimétricos
-  // Primero corregimos usando el centro de masa, luego verificamos el bounding box
-  let finalCorrectionX = verifyCenterOfMassX;
-  let finalCorrectionZ = verifyCenterOfMassZ;
+  // CORRECCIÓN FINAL: Usar el CENTRO DEL BOUNDING BOX para el centrado visual
+  // El centro del bounding box representa mejor el "centro visual" del modelo que el centro de masa
+  // Para una oveja, queremos que el centro visual (aproximadamente el centro del cuerpo) esté en (0,0,0)
+  // no necesariamente el centro de masa (que podría estar en la cabeza o en otra parte si hay más geometría ahí)
+  let finalCorrectionX = verifyBoundingBoxCenterX;
+  let finalCorrectionZ = verifyBoundingBoxCenterZ;
   
   if (Math.abs(finalCorrectionX) > 0.00001 || Math.abs(finalCorrectionZ) > 0.00001) {
-    console.log(`  ⚠️ Aplicando corrección final usando centro de masa: restando [${finalCorrectionX.toFixed(8)}, ${finalCorrectionZ.toFixed(8)}]`);
+    console.log(`  ⚠️ Aplicando corrección final usando centro del bounding box (centro visual): restando [${finalCorrectionX.toFixed(8)}, ${finalCorrectionZ.toFixed(8)}]`);
     for (let i = 0; i < whitePositions.length; i += 3) {
       whitePositions[i] -= finalCorrectionX;
       whitePositions[i + 2] -= finalCorrectionZ;
@@ -694,6 +695,41 @@ async function loadObjWithMtl(gl, objUrl, mtlUrl) {
   console.log(`    - Centro de masa final: [${verifyCenterOfMassX.toFixed(8)}, ${verifyCenterOfMassZ.toFixed(8)}]`);
   console.log(`    - Centro bounding box final: [${verifyBoundingBoxCenterX.toFixed(8)}, ${verifyBoundingBoxCenterZ.toFixed(8)}]`);
   console.log(`    - Bounding box: X[${verifyMinX.toFixed(4)}, ${verifyMaxX.toFixed(4)}], Y[${verifyMinY.toFixed(4)}, ${verifyMaxY.toFixed(4)}], Z[${verifyMinZ.toFixed(4)}, ${verifyMaxZ.toFixed(4)}]`);
+  
+  // DIAGNÓSTICO: Verificar qué parte del modelo está cerca del origen
+  // Esto ayuda a entender si el centro visual está en el origen
+  let verticesNearOrigin = 0;
+  let verticesNearOriginX = 0;
+  let verticesNearOriginZ = 0;
+  for (let i = 0; i < whitePositions.length; i += 3) {
+    const distFromOrigin = Math.sqrt(whitePositions[i] * whitePositions[i] + whitePositions[i + 2] * whitePositions[i + 2]);
+    if (distFromOrigin < 0.05) { // Dentro de 0.05 unidades del origen
+      verticesNearOrigin++;
+      verticesNearOriginX += whitePositions[i];
+      verticesNearOriginZ += whitePositions[i + 2];
+    }
+  }
+  for (let i = 0; i < blackPositions.length; i += 3) {
+    const distFromOrigin = Math.sqrt(blackPositions[i] * blackPositions[i] + blackPositions[i + 2] * blackPositions[i + 2]);
+    if (distFromOrigin < 0.05) {
+      verticesNearOrigin++;
+      verticesNearOriginX += blackPositions[i];
+      verticesNearOriginZ += blackPositions[i + 2];
+    }
+  }
+  if (verticesNearOrigin > 0) {
+    const avgNearOriginX = verticesNearOriginX / verticesNearOrigin;
+    const avgNearOriginZ = verticesNearOriginZ / verticesNearOrigin;
+    console.log(`    - Vértices cerca del origen (${verticesNearOrigin}): promedio [${avgNearOriginX.toFixed(6)}, ${avgNearOriginZ.toFixed(6)}]`);
+  }
+  
+  // Verificar simetría del bounding box para entender el centro visual
+  const rangeX = verifyMaxX - verifyMinX;
+  const rangeZ = verifyMaxZ - verifyMinZ;
+  const asymmetryX = Math.abs(verifyMinX + verifyMaxX); // Debería ser 0 si está centrado
+  const asymmetryZ = Math.abs(verifyMinZ + verifyMaxZ); // Debería ser 0 si está centrado
+  console.log(`    - Rango del modelo: X=${rangeX.toFixed(4)}, Z=${rangeZ.toFixed(4)}`);
+  console.log(`    - Asimetría del bounding box: X=${asymmetryX.toFixed(6)}, Z=${asymmetryZ.toFixed(6)}`);
   
   // Verificar que la base esté en y=0
   if (Math.abs(verifyMinY) > 0.01) {

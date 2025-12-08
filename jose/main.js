@@ -1785,12 +1785,20 @@ function createSheepInstances(cells, targetBiome = grassBiome) {
     
     // Posición: usar EXACTAMENTE los mismos datos que usan los hexágonos y árboles
     // Los hexágonos usan: x = cell.worldX, z = cell.worldZ, y = 0 (base)
-    // Los árboles usan: posX = cell.worldX, posZ = cell.worldZ, posY = visualHeight
+    // Los árboles usan: posX = cell.worldX, posZ = cell.worldZ, posY = actualHexHeight
     // La oveja debe usar EXACTAMENTE lo mismo
+    // IMPORTANTE: El hexágono se crea con baseHeight = 0.5 y se escala por visualHeight
+    // La altura final del hexágono es: baseHeight * visualHeight = baseHeight * (height * HEIGHT_UNIT)
+    // Esta es la altura de la tapa del hexágono (donde debe apoyarse la oveja)
+    // La oveja tiene su base en y=0 en su sistema local (después del centrado)
+    // Por lo tanto, posY debe ser la altura final del hexágono
+    // IMPORTANTE: HEX_BASE_HEIGHT debe coincidir con baseHeight en main() (línea 1888)
+    const HEX_BASE_HEIGHT = 0.5;
     const posX = cell.worldX;  // Mismo que hexágono y árbol
     const posZ = cell.worldZ;  // Mismo que hexágono y árbol
-    const visualHeight = cell.height * HEIGHT_UNIT;  // Altura de la tapa del hexágono
-    const posY = visualHeight;  // Oveja sobre la tapa (igual que árbol)
+    const visualHeight = cell.height * HEIGHT_UNIT;  // Altura visual calculada
+    const actualHexHeight = HEX_BASE_HEIGHT * visualHeight;  // Altura real del hexágono = baseHeight * visualHeight
+    const posY = actualHexHeight;  // Oveja sobre la tapa del hexágono (igual que árbol)
     
     // Log detallado para debuggear (solo las primeras 5 ovejas)
     if (sheepInstances.length < 5) {
@@ -1804,15 +1812,34 @@ function createSheepInstances(cells, targetBiome = grassBiome) {
     const scale = 1.2;
     
     // Construir matriz modelo: EXACTAMENTE igual que los árboles
+    // IMPORTANTE: Usar exactamente el mismo patrón que los árboles para garantizar el mismo centrado
     // Los árboles usan: translation * (rotation * scale)
-    // Para ovejas sin rotación: translation * scale (igual que hexágonos)
+    // Cuando rotationY = 0, esto se reduce a: translation * (identity * scale) = translation * scale
+    // Pero usamos el mismo patrón para evitar diferencias de precisión numérica
+    
+    // PASO 1: Crear matriz de escala (igual que los árboles)
     const scaleMatrix = scaleMat4(scale, scale, scale);
+    
+    // PASO 2: Crear matriz de rotación (rotationY = 0 para ovejas)
+    const rotationY = 0;
+    const cosR = Math.cos(rotationY);
+    const sinR = Math.sin(rotationY);
+    const rotationMatrix = new Float32Array([
+      cosR, 0, sinR, 0,
+      0, 1, 0, 0,
+      -sinR, 0, cosR, 0,
+      0, 0, 0, 1
+    ]);
+    
+    // PASO 3: Combinar rotación y escala (rotation * scale)
+    const localTransform = multiplyMat4(rotationMatrix, scaleMatrix);
+    
+    // PASO 4: Crear matriz de traslación (igual que los árboles)
     const translationMatrix = translateMat4(posX, posY, posZ);
     
-    // Matriz modelo final: translation * scale
-    // Orden: primero escala (desde el origen), luego traslada (mueve el objeto escalado)
-    // Esto es EXACTAMENTE igual a cómo se hace con los hexágonos y árboles (cuando rotation=0)
-    const modelMatrix = multiplyMat4(translationMatrix, scaleMatrix);
+    // PASO 5: Combinar traslación con transformaciones locales (EXACTAMENTE igual que los árboles)
+    // translation * (rotation * scale) = translation * scale (cuando rotationY = 0)
+    const modelMatrix = multiplyMat4(translationMatrix, localTransform);
     
     sheepInstances.push({
       modelMatrix: modelMatrix
