@@ -20,7 +20,18 @@
       <select id="biomeSelect" style="font-size: 13px;">
         <option value="0">Montaña</option>
         <option value="1">Desierto</option>
+        <option value="2">Selva</option>
       </select>
+      <label style="font-size: 12px; margin-left: 8px; user-select: none;">
+        <input type="checkbox" id="altBiomes" />
+        Alternar
+      </label>
+    </div>
+    <div style="margin-top: 8px; display: flex; align-items: center; gap: 6px;">
+      <span style="font-size: 13px;">Hexágonos:</span>
+      <button id="removeHexBtn" style="font-size: 13px; width: 28px;">-</button>
+      <span id="hexCount" style="font-size: 13px; min-width: 18px; text-align: center;">1</span>
+      <button id="addHexBtn" style="font-size: 13px; width: 28px;">+</button>
     </div>
   </div>
   <canvas id="glcanvas"></canvas>

@@ -5,6 +5,7 @@ uniform float uHeightScale;
 uniform float uHexRadius;
 uniform float uTime;
 uniform float uBiome;
+uniform vec2 uOffset;
 varying vec3 vNormal;
 varying vec3 vWorldPos;
 varying float vHeight;
@@ -77,11 +78,22 @@ float heightFieldDesert(vec2 p, float hexR, out float mask) {
   float h = (dunes + 0.2) * falloff * 0.6; // Menor altura que la montaña
   return max(h, 0.0);
 }
+float heightFieldJungle(vec2 p, float hexR, out float mask) {
+  vec2 q = p * 1.2;
+  float d = sdHex(q, hexR);
+  mask = 1.0 - smoothstep(0.02, 0.18, d);
+  float radial = length(q) * 0.6;
+  float falloff = exp(-radial * radial * 1.2) * mask;
+  float canopy = fbm(q * 1.1) * 0.45;
+  float mounds = fbm(q * 2.6) * 0.22;
+  float detail = fbm(q * 6.0) * 0.08;
+  float h = (canopy + mounds + detail) * falloff;
+  return max(h, 0.0);
+}
 float sampleHeight(vec2 p, float hexR, out float mask) {
-  if (uBiome > 0.5) {
-    return heightFieldDesert(p, hexR, mask);
-  }
-  return heightField(p, hexR, mask);
+  if (uBiome < 0.5) return heightField(p, hexR, mask);
+  if (uBiome < 1.5) return heightFieldDesert(p, hexR, mask);
+  return heightFieldJungle(p, hexR, mask);
 }
 vec3 calcNormal(vec2 p, float hexR) {
   float e = 0.0025;
@@ -98,7 +110,7 @@ void main() {
   float h = sampleHeight(coord, uHexRadius, mask) * uHeightScale;
   vHexMask = mask;
   vHeight = h;
-  vec3 pos = vec3(coord.x, h, coord.y);
+  vec3 pos = vec3(coord.x + uOffset.x, h, coord.y + uOffset.y);
   vWorldPos = pos;
   vNormal = calcNormal(coord, uHexRadius);
   gl_Position = uViewProj * vec4(pos, 1.0);
