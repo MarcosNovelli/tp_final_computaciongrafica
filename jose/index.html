@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title id="pageTitle">Bioma</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #000000;
+      color: #ffffff;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+      position: relative;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+    #biomeTitle {
+      position: absolute;
+      top: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #ffffff;
+      font-size: 48px;
+      font-weight: bold;
+      z-index: 1000;
+      pointer-events: none;
+      font-family: Arial, sans-serif;
+      text-shadow: 
+        /* Efecto 3D sutil: menos capas y más suave */
+        1px 1px 0px rgba(255, 255, 255, 0.05),
+        2px 2px 0px rgba(255, 255, 255, 0.05),
+        3px 3px 0px rgba(255, 255, 255, 0.05),
+        4px 4px 0px rgba(255, 255, 255, 0.05),
+        /* Sombra principal oscura más suave */
+        6px 6px 12px rgba(0, 0, 0, 0.6),
+        10px 10px 20px rgba(0, 0, 0, 0.4);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <!-- Título del bioma visible en pantalla -->
+  <h1 id="biomeTitle">Biome</h1>
+  <!-- Canvas donde se renderizará el contenido WebGL -->
+  <canvas id="glCanvas"></canvas>
+
+  <!-- Librería de ruido Simplex para generar alturas suaves -->
+  <!-- IMPORTANTE: Usamos simplex-noise 2.4.0 porque expone SimplexNoise globalmente -->
+  <!-- La versión 3.0.1 del CDN usa ES modules y no funciona directamente con <script> tags -->
+  <!-- El código en main.js es compatible con ambas versiones (API 2.x y 3.x) -->
+  <!-- Esta es la librería REAL SimplexNoise, NO es un fallback -->
+  <script src="https://cdn.jsdelivr.net/npm/simplex-noise@2.4.0/simplex-noise.js"></script>
+  <!-- Importante: cargar gl.js ANTES de main.js para que las funciones estén disponibles -->
+  <script src="render/gl.js"></script>
+  <!-- Cargar loader de modelos OBJ/MTL -->
+  <script src="loader/simpleObjMtlLoader.js?v=8"></script>
+  <!-- Cargar módulo para generar árboles low-poly programáticamente -->
+  <script src="objects/tree.js"></script>
+  <!-- Cargar main.js primero para tener funciones auxiliares (randomInRange, clamp01, generateColor) -->
+  <!-- main.js define las funciones pero NO ejecuta main() hasta que todos los scripts estén cargados -->
+  <script src="main.js?v=2"></script>
+  <!-- Cargar biomas (en orden: primero Grass, luego otros) -->
+  <!-- Estos archivos definen los biomas globalmente y dependen de las funciones auxiliares de main.js -->
+  <script src="biomes/grassBiome.js"></script>
+  <script src="biomes/forestBiome.js"></script>
+  <script src="biomes/rockBiome.js"></script>
+  <script src="biomes/clayBiome.js"></script>
+  <script src="biomes/desertBiome.js"></script>
+  <!-- main() se ejecuta automáticamente cuando el DOM está listo, después de cargar todos los scripts -->
+</body>
+</html>
+
