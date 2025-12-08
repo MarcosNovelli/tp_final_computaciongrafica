@@ -70,19 +70,22 @@ float sdHex(vec2 p, float r) {
 
 const float uHeightScale = 2.8;
 const float uHexRadius = 2.35;
+const float uGap = 0.05; // Gap between tiles
 
 // Base height field logic
-float heightFieldBase(vec2 p, float hexR, out float mask, bool highQuality) {
+float heightFieldBase(vec2 p, float hexR, out float mask, bool highQuality, vec2 offset) {
     vec2 q = p * 1.35;
     float d = sdHex(q, hexR);
     mask = 1.0 - smoothstep(0.02, 0.18, d);
     float radial = length(q) * 0.68;
     float falloff = exp(-radial * radial * 1.6) * mask;
     
-    float macro = highQuality ? fbm(q * 0.55) : fbmLow(q * 0.55);
+    vec2 qn = q + offset; // Offset for noise only
+    
+    float macro = highQuality ? fbm(qn * 0.55) : fbmLow(qn * 0.55);
     // Reduced impact of sharp peaks slightly (1.15 -> 0.9)
-    float peaks = ridge(q * 0.45) * 0.9; 
-    float detail = highQuality ? (fbm(q * 2.2) * 0.22) : 0.0; // Skip fine detail in low quality match
+    float peaks = ridge(qn * 0.45) * 0.9; 
+    float detail = highQuality ? (fbm(qn * 2.2) * 0.22) : 0.0; // Skip fine detail in low quality match
     
     float h = (macro * 0.32 + peaks * 0.82 + detail) * falloff;
     // Reduced exponent (1.35 -> 1.1) to flatten/smooth the curve
@@ -90,25 +93,27 @@ float heightFieldBase(vec2 p, float hexR, out float mask, bool highQuality) {
     return h;
 }
 
-float heightFieldDesert(vec2 p, float hexR, out float mask, bool highQuality) {
+float heightFieldDesert(vec2 p, float hexR, out float mask, bool highQuality, vec2 offset) {
   vec2 q = p * 1.35;
   float d = sdHex(q, hexR);
   mask = 1.0 - smoothstep(0.02, 0.18, d);
   float radial = length(q) * 0.68;
   float falloff = exp(-radial * radial * 1.6) * mask;
   
+  vec2 qn = q + offset;
+
   // Dunas suaves
   float dunes = 0.0;
-  dunes += sin(q.x * 4.0 + q.y * 2.0 + uTime * 0.1) * 0.15;
-  dunes += sin(q.x * 8.0 - q.y * 5.0) * 0.08;
-  float f = highQuality ? fbm(q * 3.0) : fbmLow(q * 3.0);
+  dunes += sin(qn.x * 4.0 + qn.y * 2.0 + uTime * 0.1) * 0.15;
+  dunes += sin(qn.x * 8.0 - qn.y * 5.0) * 0.08;
+  float f = highQuality ? fbm(qn * 3.0) : fbmLow(qn * 3.0);
   dunes += f * 0.1;
   
   float h = (dunes + 0.2) * falloff * 0.6; 
   return max(h, 0.0);
 }
 
-float heightFieldClay(vec2 p, float hexR, out float mask, bool highQuality) {
+float heightFieldClay(vec2 p, float hexR, out float mask, bool highQuality, vec2 offset) {
   vec2 q = p * 1.3;
   float d = sdHex(q, hexR);
   mask = 1.0 - smoothstep(0.02, 0.18, d);
@@ -116,20 +121,22 @@ float heightFieldClay(vec2 p, float hexR, out float mask, bool highQuality) {
   float radial = length(q) * 0.45; 
   float falloff = exp(-radial * radial * 0.6); 
 
-  float base = highQuality ? fbm(q * 0.7) : fbmLow(q * 0.7);
-  float erosion = ridge(q * 1.2) * 0.15;
-  float detail = highQuality ? (fbm(q * 4.0) * 0.05) : 0.0;
+  vec2 qn = q + offset;
+
+  float base = highQuality ? fbm(qn * 0.7) : fbmLow(qn * 0.7);
+  float erosion = ridge(qn * 1.2) * 0.15;
+  float detail = highQuality ? (fbm(qn * 4.0) * 0.05) : 0.0;
   
   float h = (base - erosion + detail) * falloff * mask;
   
-  float steps = 2.0; 
+  float steps = 7.0; 
   float s = h * steps;
   h = (s - sin(6.28318 * s) * 0.14) / steps;
 
   return max(h, 0.0) * 0.9;
 }
 
-float heightFieldJungle(vec2 p, float hexR, out float mask, bool highQuality) {
+float heightFieldJungle(vec2 p, float hexR, out float mask, bool highQuality, vec2 offset) {
   vec2 q = p * 1.3;
   float d = sdHex(q, hexR);
   mask = 1.0 - smoothstep(0.02, 0.18, d);
@@ -137,26 +144,33 @@ float heightFieldJungle(vec2 p, float hexR, out float mask, bool highQuality) {
   float radial = length(q) * 0.45;
   float falloff = exp(-radial * radial * 0.6);
 
-  float hills = (highQuality ? fbm(q * 0.5) : fbmLow(q * 0.5)) * 0.4;
+  vec2 qn = q + offset;
+
+  float hills = (highQuality ? fbm(qn * 0.5) : fbmLow(qn * 0.5)) * 0.4;
   
-  float canopyFor = noise(q * 4.0);
+  float canopyFor = noise(qn * 4.0);
   float canopy = (1.0 - abs(canopyFor * 2.0 - 1.0)) * 0.15;
   
-  float leaves = highQuality ? (fbm(q * 15.0) * 0.03) : 0.0;
+  float leaves = highQuality ? (fbm(qn * 15.0) * 0.03) : 0.0;
 
   float h = (hills + canopy + leaves + 0.12) * falloff * mask;
+    h *= 0.6;
+  
   return max(h, 0.0);
 }
 
 // uniform float uBiome; -> already declared above
-uniform float uGridRadius; // New uniform
+uniform float uGridRadius; 
+uniform float uSeed; // New uniform
 
 // Helper to determine biome for a given hex ID
 float getTileBiome(vec2 id) {
     if (uBiome > -0.5) return uBiome; // Not random
     
-    // Random biome based on ID
-    float h = hash(id * 12.34);
+    // Random biome based on ID + uSeed
+    // Multiply by large prime and add seed
+    float h = hash(id * 12.34 + vec2(uSeed));
+    
     // Map 0..1 to 0, 1, 2, 3
     if (h < 0.25) return 0.0; // Mountain
     if (h < 0.5) return 1.0;  // Desert
@@ -164,14 +178,14 @@ float getTileBiome(vec2 id) {
     return 3.0;               // Jungle
 }
 
-float sampleHeight(vec2 worldC, out float mask, out float biome, bool highQuality, float inputBiome) {
+float sampleHeight(vec2 worldC, out float mask, out float biome, bool highQuality, float inputBiome, vec2 noiseOffset) {
     mask = 0.0;
     biome = inputBiome; 
     
-    if (inputBiome < 0.5) return heightFieldBase(worldC, uHexRadius, mask, highQuality);
-    if (inputBiome < 1.5) return heightFieldDesert(worldC, uHexRadius, mask, highQuality);
-    if (inputBiome < 2.5) return heightFieldClay(worldC, uHexRadius, mask, highQuality);
-    return heightFieldJungle(worldC, uHexRadius, mask, highQuality);
+    if (inputBiome < 0.5) return heightFieldBase(worldC, uHexRadius, mask, highQuality, noiseOffset);
+    if (inputBiome < 1.5) return heightFieldDesert(worldC, uHexRadius, mask, highQuality, noiseOffset);
+    if (inputBiome < 2.5) return heightFieldClay(worldC, uHexRadius, mask, highQuality, noiseOffset);
+    return heightFieldJungle(worldC, uHexRadius, mask, highQuality, noiseOffset);
 }
 
 // ... (existing code)
@@ -316,58 +330,21 @@ float map(vec3 p) {
     // Local coords
     vec3 localP = vec3(hex.uv.x, p.y, hex.uv.y);
     
-    // Randomize biome/height per tile?
-    // User just wants "more hexagons". Let's assume same uniform biome for now, 
-    // BUT we should randomize offsets so it's not a repeating pattern.
-    // Create a random offset based on ID.
-    vec2 seed = hex.id * 12.34;
-    vec2 noiseOffset = hash(seed) * vec2(100.0);
-    
-    // Pass offset to sampleHeight? sampleHeight takes p.xz.
-    // We can just add offset to inputs of sampleHeight.
-    // BUT wait, sampleHeight uses `sdHex` inside mask logic!
-    // We must pass local coords to sampleHeight for the mask/shape, 
-    // but GLOBAL+OFFSET coords for the FBM noise.
-    
-    // Revised sampleHeight signature needed?
-    // Or just trick it. 
-    // The mask/shape depends on `p` being centered. So pass `localP.xz`.
-    // The noise depends on `p` being diverse.
-    // We can modify sampleHeight to take `noiseP` separately?
-    // Or just offset localP by a huge (integer*period) amount?
-    // FBM doesn't tile with hexes naturally.
-    
-    // Let's refactor inline for now or hack it.
-    // Best: Pass `localP.xz` for shape, and mix `localP.xz + noiseOffset` for noise.
-    // But sampleHeight calls `fbm(q * 0.55)` etc. `q` is derived from `p`.
-    // If we pass `localP`, it will look identical on every tile.
-    
-    // Quick Fix: modifying sampleHeight is best.
-    // float h = sampleHeightWithOffset(localP.xz, noiseOffset, mask, biome, false) ...
-    
-    // For now, let's just assume we want identical clones to start (to test grid), 
-    // OR just use global world P for noise?
-    // If we use world P for noise, the terrain will be continuous across boundaries!
-    // That's actually cool. It will look like one big terrain cut into hexes.
-    
-    // So: Use `localP` for `sdHex` inside functions, but `p.xz` (global) for `fbm`.
-    // Wait, `heightFieldBase` uses `q = p` then `sdHex(q)`. It couples them.
-    // We need to decouple shape (hex) from texture (noise).
-    
-    // Solution:
-    // Pass `localP.xz` to `sampleHeight`.
-    // Inside `sampleHeight` -> `heightField...`.
-    // We will modify `heightField` functions to use Global Coordinate for noise if possible?
-    // Or simpler: Just render CLONES for now to verify grid, then improve noise.
+
     
     // 1. Terrain Height at local p
     float mask, biome;
     float tileBiome = getTileBiome(hex.id);
-    float h = sampleHeight(localP.xz, mask, biome, false, tileBiome) * uHeightScale;
+    
+    // Generate unique offset per tile based on ID
+    vec2 noiseOffset = hash(hex.id + vec2(uSeed * 0.1)) * vec2(100.0) + vec2(uSeed);
+    // Add time for desert dunes if needed, or keep static. Keep static/session based.
+    
+    float h = sampleHeight(localP.xz, mask, biome, false, tileBiome, noiseOffset) * uHeightScale;
     
     // 2. Define Prism Volume (Tapered)
     float slope = 0.4;
-    float hexR = max(0.0, uHexRadius - localP.y * slope); // Clamp to avoid negative radius/SDF artifacts
+    float hexR = max(0.0, uHexRadius - uGap - localP.y * slope); // Apply gap and clamp
     float d_hex = sdHex(localP.xz * 1.35, hexR) / 1.35; // Local hex SDF
     d_hex *= 0.9;
     
@@ -406,13 +383,30 @@ vec3 intersectTerrain(vec3 ro, vec3 rd, float maxDist) {
             
             float mask, biome;
             float tileBiome = getTileBiome(hex.id);
-            sampleHeight(localP.xz, mask, biome, false, tileBiome); 
+            
+            vec2 noiseOffset = hash(hex.id + vec2(uSeed * 0.1)) * vec2(100.0) + vec2(uSeed);
+            
+            sampleHeight(localP.xz, mask, biome, false, tileBiome, noiseOffset); 
             return vec3(t, mask, biome);
         }
         
         t += d;
     }
     return vec3(-1.0, 0.0, 0.0);
+}
+
+// Soft shadow for directional light. Marches along the light ray and fades when another tile blocks it.
+float softShadow(vec3 ro, vec3 rd, float maxDist) {
+    float res = 1.0;
+    float t = 0.08;
+    for (int i = 0; i < 48; i++) {
+        if (t > maxDist) break;
+        float h = map(ro + rd * t);
+        if (h < uEpsilon) return 0.0;
+        res = min(res, 12.0 * h / t);
+        t += clamp(h, 0.04, 0.6);
+    }
+    return clamp(res, 0.0, 1.0);
 }
 
 // Old high-quality normal for terrain surface details
@@ -424,11 +418,12 @@ vec3 calcTerrainNormal(vec3 p) {
     vec2 lp = hex.uv;
     
     float tileBiome = getTileBiome(hex.id);
+    vec2 noiseOffset = hash(hex.id + vec2(uSeed * 0.1)) * vec2(100.0) + vec2(uSeed);
     
-    float hL = sampleHeight(lp - e.xy, m, b, true, tileBiome) * uHeightScale;
-    float hR = sampleHeight(lp + e.xy, m, b, true, tileBiome) * uHeightScale;
-    float hD = sampleHeight(lp - e.yx, m, b, true, tileBiome) * uHeightScale;
-    float hU = sampleHeight(lp + e.yx, m, b, true, tileBiome) * uHeightScale;
+    float hL = sampleHeight(lp - e.xy, m, b, true, tileBiome, noiseOffset) * uHeightScale;
+    float hR = sampleHeight(lp + e.xy, m, b, true, tileBiome, noiseOffset) * uHeightScale;
+    float hD = sampleHeight(lp - e.yx, m, b, true, tileBiome, noiseOffset) * uHeightScale;
+    float hU = sampleHeight(lp + e.yx, m, b, true, tileBiome, noiseOffset) * uHeightScale;
     
     vec3 v1 = vec3(2.0 * e.x, hR - hL, 0.0);
     vec3 v2 = vec3(0.0, hU - hD, 2.0 * e.x);
@@ -571,7 +566,7 @@ void main() {
     float biome = res.z;
     
     // Water Plane Logic
-    float waterLevel = -0.15; // Raised water to make tile sit deeper
+    float waterLevel = -0.05; // Raised water to make tile sit deeper
     float tWater = (waterLevel - rayOrigin.y) / rayDir.y;
     bool hitWater = false;
     
@@ -597,10 +592,11 @@ void main() {
              vec3 V = normalize(uCamPos - p);
              vec3 H = normalize(L + V);
              float diff = max(dot(n, L), 0.0);
-             float spec = pow(max(dot(n, H), 0.0), 100.0) * 0.8;
+             float shadow = softShadow(p + n * uEpsilon * 6.0, L, 40.0);
+             float spec = pow(max(dot(n, H), 0.0), 100.0) * 0.8 * shadow;
              float fresnel = pow(1.0 - max(dot(V, n), 0.0), 4.0);
              waterColor = mix(waterColor, skyRef, fresnel * 0.5 + 0.2);
-             color = waterColor * (0.8 + diff * 0.2) + spec;
+             color = waterColor * (0.7 + diff * shadow * 0.3) + spec;
              
         } else {
             // Re-calculate precise height for coloring/normals
@@ -610,7 +606,9 @@ void main() {
             
             float preciseMask, preciseBiome;
             float tileBiome = getTileBiome(hex.id);
-            float preciseH = sampleHeight(localP.xz, preciseMask, preciseBiome, true, tileBiome) * uHeightScale;
+            vec2 noiseOffset = hash(hex.id + vec2(uSeed * 0.1)) * vec2(100.0) + vec2(uSeed);
+            
+            float preciseH = sampleHeight(localP.xz, preciseMask, preciseBiome, true, tileBiome, noiseOffset) * uHeightScale;
             
             // Calculate normal using SDF gradient (Geometry Normal)
             vec3 n_geo = calcNormal(p);
@@ -662,9 +660,14 @@ void main() {
             float rough = mix(0.35, 1.0, surfSlope);
             float specExp = mix(22.0, 46.0, 1.0 - rough);
             float spec = pow(max(dot(n, H), 0.0), specExp) * mix(0.15, 0.4, 1.0 - rough);
+            float shadow = softShadow(p + n * uEpsilon * 6.0, L, 40.0);
+            diff *= shadow;
+            spec *= shadow;
             
-            vec3 ambient = vec3(0.18, 0.2, 0.22);
-            color = baseColor * (ambient + diff * 1.05) + spec;
+            vec3 ambient = vec3(0.12, 0.14, 0.16);
+            vec3 skyBounce = colorCielo(L) * clamp(0.15 + 0.45 * n.y, 0.0, 0.55);
+            float rim = pow(1.0 - max(dot(n, V), 0.0), 3.0);
+            color = baseColor * (ambient + skyBounce + diff * 1.2) + spec + baseColor * rim * 0.15;
         }
     } else {
         color = colorCielo(rayDir);

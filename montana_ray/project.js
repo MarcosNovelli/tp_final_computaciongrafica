@@ -8,6 +8,8 @@ var camRadius = 7.0;
 var camYaw = Math.PI * 0.42;
 var camPitch = 0.32;
 var camTarget = [0, 1.1, 0];
+var lightAzimuthDeg = -35;
+var lightElevationDeg = 55;
 
 async function InitWebGL() {
     canvas = document.getElementById("canvas");
@@ -25,6 +27,7 @@ async function InitWebGL() {
     ]);
 
     rayTracer = new RayTracer(gl, meshVS, meshFS);
+    rayTracer.setLightDirFromAngles(lightAzimuthDeg, lightElevationDeg);
 
     UpdateCanvasSize();
 
@@ -79,6 +82,35 @@ async function InitWebGL() {
                 requestAnimationFrame(DrawScene);
             }
         });
+    }
+
+    // Light controls
+    const azSlider = document.getElementById("lightAzimuth");
+    const elSlider = document.getElementById("lightElevation");
+    const azVal = document.getElementById("lightAzimuthVal");
+    const elVal = document.getElementById("lightElevationVal");
+
+    function updateLight() {
+        azVal.innerText = `${lightAzimuthDeg}°`;
+        elVal.innerText = `${lightElevationDeg}°`;
+        if (rayTracer) {
+            rayTracer.setLightDirFromAngles(lightAzimuthDeg, lightElevationDeg);
+            requestAnimationFrame(DrawScene);
+        }
+    }
+
+    if (azSlider && elSlider && azVal && elVal) {
+        azSlider.value = lightAzimuthDeg;
+        elSlider.value = lightElevationDeg;
+        azSlider.addEventListener("input", (e) => {
+            lightAzimuthDeg = parseFloat(e.target.value);
+            updateLight();
+        });
+        elSlider.addEventListener("input", (e) => {
+            lightElevationDeg = parseFloat(e.target.value);
+            updateLight();
+        });
+        updateLight();
     }
 
     DrawScene();

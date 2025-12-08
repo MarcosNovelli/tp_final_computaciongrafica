@@ -12,6 +12,7 @@ class RayTracer {
         this.uTime = gl.getUniformLocation(this.prog, 'uTime');
         this.uBiome = gl.getUniformLocation(this.prog, 'uBiome');
         this.uGridRadius = gl.getUniformLocation(this.prog, 'uGridRadius');
+        this.uSeed = gl.getUniformLocation(this.prog, 'uSeed'); // New Seed Uniform
 
         this.aPos = gl.getAttribLocation(this.prog, 'pos');
 
@@ -27,8 +28,9 @@ class RayTracer {
 
         this._tanHalfFov = Math.tan((55.0 * Math.PI / 180.0) * 0.5); // Montana uses 55 fov
         this._epsilon = 0.0005;
-        this._lightdir = [-0.4, 0.9, 0.25]; // Montana default light
+        this._lightdir = [-0.4, 0.9, 0.25]; // Default until UI sets a value
         this.startTime = Date.now();
+        this.seed = Math.random() * 100.0; // Generate random seed on load
     }
 
     draw(rotX, rotY, radius, target, biome, gridRadius) {
@@ -44,6 +46,7 @@ class RayTracer {
         gl.uniform1f(this.uTime, (Date.now() - this.startTime) * 0.001);
         gl.uniform1f(this.uBiome, biome);
         gl.uniform1f(this.uGridRadius, gridRadius);
+        gl.uniform1f(this.uSeed, this.seed); // Pass seed
 
         // Camera Calculation mirroring Montana's logic
         // camera.yaw = rotY, camera.pitch = rotX, camera.radius = radius
@@ -138,5 +141,14 @@ class RayTracer {
 
     setEpsilon(val) {
         this._epsilon = val;
+    }
+
+    setLightDirFromAngles(azimuthDeg, elevationDeg) {
+        const az = azimuthDeg * Math.PI / 180;
+        const el = elevationDeg * Math.PI / 180;
+        const x = Math.cos(el) * Math.cos(az);
+        const y = Math.sin(el);
+        const z = Math.cos(el) * Math.sin(az);
+        this._lightdir = [x, y, z];
     }
 }

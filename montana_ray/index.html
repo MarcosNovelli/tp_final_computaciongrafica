@@ -27,6 +27,17 @@
             background: rgba(0, 0, 0, 0.5);
             padding: 10px;
             border-radius: 4px;
+            width: 240px;
+        }
+
+        #controls label {
+            display: block;
+            margin-top: 6px;
+            font-size: 14px;
+        }
+
+        #controls input[type="range"] {
+            width: 100%;
         }
     </style>
 </head>
@@ -49,6 +60,11 @@
         <label>Grid Radius: <span id="gridSizeVal">0</span></label>
         <button id="btnLess">-</button>
         <button id="btnMore">+</button>
+        <label for="lightAzimuth">Sun Azimuth: <span id="lightAzimuthVal"></span></label>
+        <input type="range" id="lightAzimuth" min="-180" max="180" value="-35" step="1">
+        <label for="lightElevation">Sun Elevation: <span id="lightElevationVal"></span></label>
+        <input type="range" id="lightElevation" min="5" max="85" value="55" step="1">
+        <small>Mueve los deslizadores para cambiar la dirección de la luz.</small>
     </div>
 
     <!-- Shaders -->
