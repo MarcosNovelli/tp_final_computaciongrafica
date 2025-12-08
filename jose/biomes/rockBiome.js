@@ -92,34 +92,34 @@ function computeRockHeight(q, r, noise, context = null) {
  * 
  * RESPONSABILIDAD:
  * - Dividir el terreno en 3 bandas según la altura normalizada
- * - Banda baja (heightNorm < 0.25): verde (pasto en la base de la montaña)
- * - Banda media (0.25 <= heightNorm < 0.8): roca gris (con gradiente de oscuro a medio)
- * - Banda alta (heightNorm >= 0.8): nieve (blanco en la punta)
+ * - Banda baja (heightNorm < 0.2): verde (pasto en la base de la montaña)
+ * - Banda media (0.2 <= heightNorm < 0.97): roca gris (con gradiente de oscuro a medio)
+ * - Banda alta (heightNorm >= 0.97): nieve (blanco en la punta)
  * 
  * BANDAS DE COLOR:
  * 
- * 1. BANDA BAJA (heightNorm < 0.25) - ZONA VERDE:
+ * 1. BANDA BAJA (heightNorm < 0.2) - ZONA VERDE:
  *    - Color similar al bioma Grass: [0.33, 0.61, 0.23]
  *    - Representa pasto/vegetación en la base de la montaña
- *    - Ocupa el 25% inferior de la montaña
+ *    - Ocupa el 20% inferior de la montaña
  * 
- * 2. BANDA MEDIA (0.25 <= heightNorm < 0.8) - ZONA ROCOSA:
+ * 2. BANDA MEDIA (0.2 <= heightNorm < 0.97) - ZONA ROCOSA:
  *    - Color base: [0.45, 0.48, 0.52] (gris medio)
  *    - Color oscuro: [0.25, 0.27, 0.32] (gris oscuro)
  *    - Gradiente lineal: más oscuro en la parte baja de la banda, más claro arriba
- *    - Ocupa el 55% medio de la montaña (de 25% a 80%)
+ *    - Ocupa el 77% medio de la montaña (de 20% a 97%)
  * 
- * 3. BANDA ALTA (heightNorm >= 0.8) - ZONA NEVADA:
+ * 3. BANDA ALTA (heightNorm >= 0.97) - ZONA NEVADA:
  *    - Color: [0.95, 0.96, 0.98] (blanco casi puro con toque azulado)
  *    - Representa nieve en la punta de la montaña
- *    - Ocupa el 20% superior de la montaña (de 80% a 100%)
+ *    - Ocupa el 3% superior de la montaña (de 97% a 100%)
  * 
  * @param {number} heightNorm - Altura normalizada de la celda (0..1)
  * @returns {number[]} Color RGB [r, g, b] según la banda correspondiente
  */
 function computeRockColor(heightNorm) {
   // BANDA BAJA: Zona verde (base de la montaña)
-  // heightNorm < 0.25 corresponde a los primeros 25% de la altura
+  // heightNorm < 0.2 corresponde a los primeros 20% de la altura
   // Esta zona tiene pasto/vegetación similar al bioma Grass
   if (heightNorm < 0.2) {
     const grass = [0.33, 0.61, 0.23]; // Verde similar al grass biome
@@ -127,16 +127,16 @@ function computeRockColor(heightNorm) {
   }
   
   // BANDA MEDIA: Zona rocosa (cuerpo de la montaña)
-  // 0.25 <= heightNorm < 0.8 corresponde al 55% medio de la altura
+  // 0.2 <= heightNorm < 0.97 corresponde a la parte media de la altura
   // Esta zona tiene roca gris con gradiente de oscuro (abajo) a medio (arriba)
   if (heightNorm < 0.97) {
     const baseRock = [0.45, 0.48, 0.52]; // Gris medio (parte alta de la banda rocosa)
     const dark = [0.25, 0.27, 0.32];     // Gris oscuro (parte baja de la banda rocosa)
     
     // Calcular posición dentro de la banda rocosa (0..1)
-    // t = 0 en heightNorm = 0.25 (inicio de la banda)
-    // t = 1 en heightNorm = 0.8 (fin de la banda)
-    const t = (heightNorm - 0.25) / (0.8 - 0.25);
+    // t = 0 en heightNorm = 0.2 (inicio de la banda)
+    // t = 1 en heightNorm = 0.97 (fin de la banda)
+    const t = (heightNorm - 0.2) / (0.97 - 0.2);
     
     // Interpolación lineal entre dark (t=0) y baseRock (t=1)
     // Esto crea un gradiente suave de gris oscuro a gris medio
@@ -148,7 +148,7 @@ function computeRockColor(heightNorm) {
   }
   
   // BANDA ALTA: Zona nevada (punta de la montaña)
-  // heightNorm >= 0.8 corresponde al 20% superior de la altura
+  // heightNorm >= 0.97 corresponde al 3% superior de la altura
   // Esta zona tiene nieve blanca en la punta de la montaña
   const snowBase = [0.95, 0.96, 0.98]; // Blanco casi puro con ligero toque azulado
   return snowBase;
@@ -169,7 +169,7 @@ const rockBiome = {
   minHeight: 1.0,                             // Altura mínima (base de la montaña, más alta que Forest)
   maxHeight: 40.0,                            // Altura máxima (pico de la montaña, MUCHO más alto que Forest - montaña prominente)
   heightNoiseScale: 0.2,                      // Escala del ruido para variación local (ajustable)
-  treeDensity: 0.08,                          // 8% de densidad de árboles (solo en zona verde)
+  treeDensity: 0.13,                          // 8% de densidad de árboles (solo en zona verde)
   sheepDensity: 0.0,                          // Sin ovejas en este bioma
   computeHeight: computeRockHeight,           // Función específica para calcular alturas con forma de montaña
   computeColor: computeRockColor              // Función específica para calcular colores en 3 bandas
