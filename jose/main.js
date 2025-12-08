@@ -73,7 +73,7 @@ const GRID_RADIUS = 8;
  * NOTA: Este valor determina TODO el terreno. Para mezclar biomas (islas de biomas diferentes),
  * necesitarías una lógica más compleja que está fuera del alcance de este paso.
  */
-const ACTIVE_BIOME = "Clay"; // Cambiar entre "Grass", "Forest", "Rock" y "Clay"
+const ACTIVE_BIOME = "Rock"; // Cambiar entre "Grass", "Forest", "Rock" y "Clay"
 
 /**
  * Obtiene el bioma activo actual basado en la constante ACTIVE_BIOME.
@@ -2024,16 +2024,16 @@ function createTreeInstances(cells, targetBiome = null) {
     
     // FILTRAR ESPECIAL PARA BIOMA ROCK:
     // En el bioma Rock, solo generar árboles en la zona verde (base de la montaña)
-    // La zona verde corresponde a heightNorm < 0.25 (primeros 25% de la altura)
-    // No generar árboles en roca ni nieve (heightNorm >= 0.25)
+    // La zona verde corresponde a heightNorm < 0.2 (primeros 20% de la altura, solo pasto)
+    // No generar árboles en roca ni nieve (heightNorm >= 0.2)
     if (cell.biome.name === "Rock") {
       // Si no tiene heightNorm, calcularlo
       if (cell.heightNorm === null || cell.heightNorm === undefined) {
         const heightRange = cell.biome.maxHeight - cell.biome.minHeight || 1.0;
         cell.heightNorm = (cell.height - cell.biome.minHeight) / heightRange;
       }
-      // Solo generar árboles en la zona verde (heightNorm < 0.25)
-      if (cell.heightNorm >= 0.25) {
+      // Solo generar árboles en los hexágonos de pasto (zona verde: heightNorm < 0.2)
+      if (cell.heightNorm >= 0.2) {
         continue; // Esta celda está en zona rocosa o nevada, no poner árbol
       }
     }
