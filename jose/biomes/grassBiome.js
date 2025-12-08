@@ -38,6 +38,14 @@
  * - Para cada componente (R, G, B), se suma un valor aleatorio entre -colorVariance y +colorVariance
  * - Esto crea pequeñas variaciones entre celdas adyacentes, simulando variaciones naturales
  * 
+ * PROBABILIDAD DE VARIACIÓN (colorVariationProbability):
+ * - Controla con qué frecuencia se aplica la variación de color
+ * - Valores entre 0.0 y 1.0:
+ *   - 0.0 = ninguna celda varía (todas usan color base)
+ *   - 1.0 = todas las celdas varían (comportamiento actual)
+ *   - 0.3 = solo 30% de las celdas tienen variación, 70% usan color base
+ * - Esto permite controlar la "frecuencia" de variación independientemente de la "cantidad"
+ * 
  * AJUSTE POR ALTURA:
  * - Celdas más altas se hacen un poco más claras (mayor brillo)
  * - Esto simula que áreas elevadas reciben más luz o tienen diferentes tipos de vegetación
@@ -55,15 +63,25 @@ function computeGrassColor(height, biome) {
   const [r, g, b] = biome.baseColor;
   
   // PASO 1: Aplicar variación aleatoria por canal usando colorVariance
-  // Genera valores aleatorios entre -colorVariance y +colorVariance
-  const dr = randomInRange(-biome.colorVariance, biome.colorVariance);
-  const dg = randomInRange(-biome.colorVariance, biome.colorVariance);
-  const db = randomInRange(-biome.colorVariance, biome.colorVariance);
+  // PERO solo si pasa la probabilidad de variación (para controlar frecuencia)
+  let rr = r;
+  let gg = g;
+  let bb = b;
   
-  // Suma la variación al color base
-  let rr = r + dr;
-  let gg = g + dg;
-  let bb = b + db;
+  // Solo aplicar variación si pasa la probabilidad
+  const variationProbability = biome.colorVariationProbability !== undefined ? biome.colorVariationProbability : 1.0;
+  if (Math.random() < variationProbability) {
+    // Genera valores aleatorios entre -colorVariance y +colorVariance
+    const dr = randomInRange(-biome.colorVariance, biome.colorVariance);
+    const dg = randomInRange(-biome.colorVariance, biome.colorVariance);
+    const db = randomInRange(-biome.colorVariance, biome.colorVariance);
+    
+    // Suma la variación al color base
+    rr = r + dr;
+    gg = g + dg;
+    bb = b + db;
+  }
+  // Si no pasa la probabilidad, rr, gg, bb ya tienen el color base sin variación
   
   // PASO 2: Aplicar ajuste de brillo según la altura
   // Normaliza la altura del rango [minHeight, maxHeight] a [0, 1]
@@ -98,10 +116,14 @@ function computeGrassColor(height, biome) {
  * - Áreas más altas se ven ligeramente más claras
  */
 const grassBiome = {
-  baseColor: [0.5, 0.8, 0.3],     // Verde más brillante/lime green como en la imagen de referencia
-  minHeight: 1,                    // Altura mínima
-  maxHeight: 3,                    // Altura máxima
-  colorVariance: 0.08,             // Variación de color un poco más visible
-  computeColor: computeGrassColor  // Función específica para calcular colores
+  baseColor: [0.408, 0.62, 0.223],              // Verde más brillante/lime green como en la imagen de referencia
+  minHeight: 1,                             // Altura mínima
+  maxHeight: 5,                             // Altura máxima
+  colorVariance: 0.05,                      // Cantidad de variación cuando se aplica (cuánto varía)
+  colorVariationProbability: 0.4,           // Probabilidad de que una celda tenga variación (0.0 a 1.0)
+  // 0.5 = 50% de las celdas tendrán variación, 50% usarán color base puro
+  // 1.0 = todas las celdas varían (comportamiento anterior)
+  // 0.3 = solo 30% varían, 70% usan color base
+  computeColor: computeGrassColor           // Función específica para calcular colores
 };
 

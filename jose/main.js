@@ -1601,6 +1601,12 @@ function createTreeInstances(cells, targetBiome = grassBiome) {
     
     grassCellsCount++;
     
+    // EVITAR CONFLICTOS: Saltar celdas que ya tienen una oveja
+    // Esto asegura que árboles y ovejas no compartan el mismo hexágono
+    if (cell.occupied) {
+      continue; // Esta celda ya tiene una oveja, no poner árbol
+    }
+    
     // Decidir aleatoriamente si esta celda debe tener un árbol
     if (Math.random() >= TREE_DENSITY) {
       continue; // No poner árbol en esta celda
@@ -1633,12 +1639,16 @@ function createTreeInstances(cells, targetBiome = grassBiome) {
     // ============================================================
     // ALTURA DEL ÁRBOL: Exactamente sobre la tapa del hexágono
     // ============================================================
-    // La altura visual del hexágono es cell.height * HEIGHT_UNIT
+    // IMPORTANTE: El hexágono se crea con baseHeight = 0.5 y se escala por visualHeight
+    // La altura final del hexágono es: baseHeight * visualHeight = baseHeight * (height * HEIGHT_UNIT)
     // Esta es la altura de la tapa del hexágono (donde debe apoyarse el árbol)
     // El árbol tiene su base del tronco en y=0 en su sistema local (createTreeMesh)
-    // Por lo tanto, posY = visualHeight coloca la base del tronco exactamente sobre la tapa
-    const visualHeight = cell.height * HEIGHT_UNIT;
-    const posY = visualHeight;
+    // Por lo tanto, posY debe ser la altura final del hexágono
+    // IMPORTANTE: HEX_BASE_HEIGHT debe coincidir con baseHeight en main() (línea 1888)
+    const HEX_BASE_HEIGHT = 0.5;
+    const visualHeight = cell.height * HEIGHT_UNIT; // Altura visual calculada
+    const actualHexHeight = HEX_BASE_HEIGHT * visualHeight; // Altura real del hexágono = baseHeight * visualHeight
+    const posY = actualHexHeight; // Árbol sobre la tapa del hexágono
     
     // Validar que la altura sea válida (no negativa ni cero)
     if (posY <= 0) {
@@ -1720,160 +1730,98 @@ function createTreeInstances(cells, targetBiome = grassBiome) {
 /**
  * Crea instancias de ovejas distribuidas aleatoriamente sobre las celdas del bioma Grass.
  * 
- * RESPONSABILIDAD:
- * - Filtrar solo las celdas que pertenecen al bioma Grass
- * - Para cada celda de Grass, decidir aleatoriamente si debe tener una oveja según SHEEP_DENSITY
- * - Usar directamente los datos almacenados en la celda (worldX, worldZ, height)
- * - Generar una matriz modelo para cada oveja con rotación y escala aleatorias
- * - Retornar un array de instancias con sus matrices modelo
- * 
- * FILTRADO POR BIOMA:
- * - IMPORTANTE: Solo genera ovejas en celdas que pertenecen al bioma Grass
- * - Cada celda tiene una propiedad `biome` que identifica a qué bioma pertenece
- * 
- * POSICIONAMIENTO:
- * - Cada oveja está perfectamente centrada en un hexágono
- * - La posición (x, z) se usa directamente desde cell.worldX y cell.worldZ (centro del hexágono)
- * - La altura en Y se calcula como la altura visual del hexágono (top del hex)
- * - La oveja tiene su base en y=0 (en su sistema local del modelo OBJ)
- * - Se traslada a y = visualHeight para que la base quede sobre la tapa del hexágono
- * 
- * VARIACIÓN:
- * - Rotación aleatoria alrededor del eje Y (0 a 2π)
- * - Escala aleatoria entre 0.8 y 1.2 para dar variedad de tamaño
- * 
  * @param {Array} cells - Array de celdas con formato { q, r, worldX, worldZ, height, color, biome }
  * @param {Object} targetBiome - Bioma objetivo para generar ovejas (por defecto grassBiome)
  * @returns {Array<{modelMatrix: Float32Array}>} Array de instancias de ovejas
  */
 function createSheepInstances(cells, targetBiome = grassBiome) {
   const sheepInstances = [];
-  let grassCellsCount = 0;
+  let validCells = 0;
+  let skippedBorder = 0;
+  let skippedNoHeight = 0;
   
-  // Recorrer todas las celdas del terreno
+  // MARGEN DE SEGURIDAD: Excluir celdas muy cerca del borde para evitar ovejas fuera del terreno
+  // El modelo de oveja puede extenderse un poco fuera del hexágono, así que dejamos un margen
+  const SAFE_MARGIN = 1; // Excluir celdas a menos de 1 unidad del borde
+  
   for (const cell of cells) {
-    // FILTRAR: Solo generar ovejas en celdas del bioma objetivo (por defecto Grass)
-    // Esto evita generar ovejas fuera del bioma o en biomas incorrectos
+    // Solo generar ovejas en celdas del bioma objetivo
     if (cell.biome !== targetBiome) {
-      continue; // Saltar celdas que no pertenecen al bioma objetivo
-    }
-    
-    grassCellsCount++;
-    
-    // Decidir aleatoriamente si esta celda debe tener una oveja
-    if (Math.random() >= SHEEP_DENSITY) {
-      continue; // No poner oveja en esta celda
-    }
-    
-    // ============================================================
-    // POSICIÓN DE LA OVEJA: Usar directamente worldX y worldZ de la celda
-    // ============================================================
-    // cell.worldX y cell.worldZ son el centro exacto del hexágono en el mundo
-    // Estos valores fueron calculados en createCells() usando hexToPixel3D()
-    // Son exactamente las mismas coordenadas que se usan para dibujar el hexágono
-    // NO recalcular aquí para evitar discrepancias
-    // La geometría de la oveja está centrada en el origen (x=0, z=0) en su sistema local
-    // Así que simplemente trasladamos la oveja a estas coordenadas
-    const posX = cell.worldX;  // Exactamente el centro del hexágono
-    const posZ = cell.worldZ;  // Exactamente el centro del hexágono
-    
-    // ============================================================
-    // JITTER OPCIONAL: Desactivado por ahora para centrado perfecto
-    // ============================================================
-    // Si quieres activar jitter más adelante, usar máximo 10-15% del radio
-    // const JITTER_RADIUS = HEX_RADIUS_WORLD * 0.1; // máximo 10% del radio
-    // const jitterAngle = Math.random() * Math.PI * 2.0;
-    // const jitterDistance = Math.random() * JITTER_RADIUS;
-    // const offsetX = Math.cos(jitterAngle) * jitterDistance;
-    // const offsetZ = Math.sin(jitterAngle) * jitterDistance;
-    // posX = posX + offsetX;
-    // posZ = posZ + offsetZ;
-    
-    // ============================================================
-    // ALTURA DE LA OVEJA: Exactamente sobre la tapa del hexágono
-    // ============================================================
-    // La altura visual del hexágono es cell.height * HEIGHT_UNIT
-    // Esta es la altura de la tapa del hexágono (donde debe apoyarse la oveja)
-    // El modelo OBJ tiene su base en y=0 en su sistema local
-    // Por lo tanto, posY = visualHeight coloca la base de la oveja exactamente sobre la tapa
-    const visualHeight = cell.height * HEIGHT_UNIT;
-    const posY = visualHeight;
-    
-    // Validar que la altura sea válida (no negativa ni cero)
-    if (posY <= 0) {
-      console.warn(`Advertencia: Celda (${cell.q}, ${cell.r}) tiene altura ${cell.height}, visualHeight=${visualHeight}. Saltando oveja.`);
       continue;
     }
     
-    // ============================================================
-    // TRANSFORMACIONES: Rotación y escala aleatorias
-    // ============================================================
-    // Rotación desactivada (0) para que todas las ovejas miren en la misma dirección
-    // Esto garantiza el centrado perfecto
-    const rotationY = 0;
+    validCells++;
     
-    // Escala uniforme (mantener en 1.0 para tamaño consistente, o cambiar a escala aleatoria para variedad)
-    // Para cambiar el tamaño de las ovejas, modifica el valor de scale aquí:
-    const scale = 1.3; // Tamaño uniforme (todas las ovejas del mismo tamaño)
+    // Validar que la celda esté DENTRO del radio con margen de seguridad
+    // Esto evita que las ovejas aparezcan fuera del terreno
+    const distance = hexDistance(0, 0, cell.q, cell.r);
+    if (distance >= (GRID_RADIUS - SAFE_MARGIN)) {
+      skippedBorder++;
+      continue; // Saltar celdas cerca del borde
+    }
     
-    // OPCIÓN: Si quieres variedad de tamaños, descomenta esta línea y comenta la anterior:
-    // const scale = randomInRange(1.2, 1.6); // Ovejas con tamaño aleatorio entre 1.2x y 1.6x
+    // Validar que la altura sea válida
+    if (!cell.height || cell.height <= 0) {
+      skippedNoHeight++;
+      continue;
+    }
     
-    // ============================================================
-    // CONSTRUCCIÓN DE LA MATRIZ MODELO (igual que el hexágono y árbol)
-    // ============================================================
-    // IMPORTANTE: Construimos EXACTAMENTE igual que drawHexagonAt()
-    // El hexágono hace: translation * scale
-    // La oveja hace: translation * rotation * scale
-    // 
-    // PATRÓN DEL HEXÁGONO (línea 1296):
-    //   1. scaleMatrix = scaleMat4(...)
-    //   2. translationMatrix = translateMat4(x, 0, z)
-    //   3. modelMatrix = multiplyMat4(translationMatrix, scaleMatrix)
-    //      Resultado: translation * scale
-    //
-    // PATRÓN PARA LA OVEJA (mismo orden):
-    //   1. scaleMatrix = scaleMat4(...)
-    //   2. rotationMatrix = ...
-    //   3. localTransform = rotation * scale
-    //   4. translationMatrix = translateMat4(posX, posY, posZ)
-    //   5. modelMatrix = multiplyMat4(translationMatrix, localTransform)
-    //      Resultado: translation * rotation * scale
+    // Validar que worldX y worldZ existan y sean números válidos
+    if (typeof cell.worldX !== 'number' || typeof cell.worldZ !== 'number' ||
+        isNaN(cell.worldX) || isNaN(cell.worldZ) ||
+        !isFinite(cell.worldX) || !isFinite(cell.worldZ)) {
+      console.warn(`  ⚠️ Celda (${cell.q}, ${cell.r}) tiene coordenadas inválidas, saltando`);
+      continue;
+    }
     
-    // PASO 1: Crear matriz de escala (igual que el hexágono)
+    // Decidir aleatoriamente si esta celda debe tener una oveja
+    if (Math.random() >= SHEEP_DENSITY) {
+      continue;
+    }
+    
+    // MARCADO DE CELDA OCUPADA: Marcar esta celda como ocupada por una oveja
+    // Esto evita que los árboles se generen en el mismo hexágono
+    cell.occupied = true;
+    
+    // Posición: usar EXACTAMENTE los mismos datos que usan los hexágonos y árboles
+    // Los hexágonos usan: x = cell.worldX, z = cell.worldZ, y = 0 (base)
+    // Los árboles usan: posX = cell.worldX, posZ = cell.worldZ, posY = visualHeight
+    // La oveja debe usar EXACTAMENTE lo mismo
+    const posX = cell.worldX;  // Mismo que hexágono y árbol
+    const posZ = cell.worldZ;  // Mismo que hexágono y árbol
+    const visualHeight = cell.height * HEIGHT_UNIT;  // Altura de la tapa del hexágono
+    const posY = visualHeight;  // Oveja sobre la tapa (igual que árbol)
+    
+    // Log detallado para debuggear (solo las primeras 5 ovejas)
+    if (sheepInstances.length < 5) {
+      console.log(`  Oveja ${sheepInstances.length + 1}:`);
+      console.log(`    - Celda: (${cell.q}, ${cell.r}), distancia=${distance.toFixed(2)}`);
+      console.log(`    - Posición hexágono: (${posX.toFixed(6)}, 0, ${posZ.toFixed(6)})`);
+      console.log(`    - Posición oveja: (${posX.toFixed(6)}, ${posY.toFixed(6)}, ${posZ.toFixed(6)})`);
+    }
+    
+    // Escala - reducir un poco para asegurar que quepa dentro del hexágono
+    const scale = 1.2;
+    
+    // Construir matriz modelo: EXACTAMENTE igual que los árboles
+    // Los árboles usan: translation * (rotation * scale)
+    // Para ovejas sin rotación: translation * scale (igual que hexágonos)
     const scaleMatrix = scaleMat4(scale, scale, scale);
-    
-    // PASO 2: Crear matriz de rotación alrededor del eje Y
-    const cosR = Math.cos(rotationY);
-    const sinR = Math.sin(rotationY);
-    const rotationMatrix = new Float32Array([
-      cosR, 0, sinR, 0,
-      0, 1, 0, 0,
-      -sinR, 0, cosR, 0,
-      0, 0, 0, 1
-    ]);
-    
-    // PASO 3: Combinar rotación y escala (rotation * scale)
-    // Esto aplica primero la escala, luego la rotación, ambas alrededor del origen
-    const localTransform = multiplyMat4(rotationMatrix, scaleMatrix);
-    
-    // PASO 4: Crear matriz de traslación (igual que el hexágono)
-    // Esta traslación mueve el centro de la oveja (origen local) a la posición final
     const translationMatrix = translateMat4(posX, posY, posZ);
     
-    // PASO 5: Combinar traslación con transformaciones locales (igual que el hexágono)
-    // translation * (rotation * scale) = translation * rotation * scale
-    const modelMatrix = multiplyMat4(translationMatrix, localTransform);
-    
-    // RESULTADO: La oveja está perfectamente centrada en (posX, posY, posZ)
-    // porque seguimos exactamente el mismo patrón que el hexágono y el árbol
+    // Matriz modelo final: translation * scale
+    // Orden: primero escala (desde el origen), luego traslada (mueve el objeto escalado)
+    // Esto es EXACTAMENTE igual a cómo se hace con los hexágonos y árboles (cuando rotation=0)
+    const modelMatrix = multiplyMat4(translationMatrix, scaleMatrix);
     
     sheepInstances.push({
       modelMatrix: modelMatrix
     });
   }
   
-  console.log(`✓ ${sheepInstances.length} ovejas instanciadas sobre ${grassCellsCount} celdas de Grass (de ${cells.length} totales, densidad: ${(SHEEP_DENSITY * 100).toFixed(1)}%)`);
+  console.log(`✓ ${sheepInstances.length} ovejas instanciadas sobre ${validCells} celdas válidas de Grass`);
+  if (skippedBorder > 0) console.log(`  (saltadas ${skippedBorder} celdas cerca del borde por seguridad)`);
+  if (skippedNoHeight > 0) console.log(`  (saltadas ${skippedNoHeight} celdas sin altura válida)`);
   
   return sheepInstances;
 }
@@ -1941,7 +1889,7 @@ async function main() {
   // Este mismo valor se usa en hexToPixel3D para calcular las posiciones de los centros
   // Esto garantiza que el tamaño físico del hexágono coincida exactamente con el espaciado
   // de la grilla, creando un mosaico perfecto sin huecos ni solapamientos
-  const baseHeight = 1.0; // Altura base del prisma (se escala según cell.height)
+  const baseHeight = 0.5; // Altura base del prisma (se escala según cell.height)
   const prismData = createHexagonPrismData(HEX_RADIUS_WORLD, baseHeight);
   
   // Paso 6: Crear buffers separados para posiciones y normales
@@ -1964,15 +1912,21 @@ async function main() {
   let sheepMesh = null;
   
   try {
+    console.log('Cargando modelo de oveja...');
     const sheepData = await loadObjWithMtl(gl, "objects/Sheep.obj", "objects/Sheep.mtl");
+    if (!sheepData || !sheepData.white || !sheepData.black) {
+      throw new Error('El modelo de oveja no se cargó correctamente (estructura de datos inválida)');
+    }
     sheepMesh = {
       white: sheepData.white,  // Lana (blanco)
       black: sheepData.black   // Cabeza y patas (gris oscuro)
     };
     console.log(`✓ Modelo de oveja cargado: White=${sheepData.white.indexCount / 3} triángulos, Black=${sheepData.black.indexCount / 3} triángulos`);
   } catch (error) {
-    console.warn(`Advertencia: No se pudo cargar el modelo de oveja: ${error.message}`);
+    console.error(`❌ ERROR al cargar el modelo de oveja: ${error.message}`);
+    console.error('  Stack trace:', error.stack);
     console.warn('  Continuando sin ovejas...');
+    sheepMesh = null;
   }
   
   // Paso 9: Crear instancias de árboles distribuidas sobre el terreno
