@@ -104,7 +104,7 @@ let tileCount = 1;
 let tileOffsets = [[0, 0]];
 const tileSpacing = 2.01;
 let alternateBiomes = false;
-const totalBiomes = 3;
+const totalBiomes = 4;
 const camera = { radius: 7.0, yaw: Math.PI * 0.42, pitch: 0.32, target: [0, 1.1, 0] };
 let dragging = false, lastX = 0, lastY = 0;
 
