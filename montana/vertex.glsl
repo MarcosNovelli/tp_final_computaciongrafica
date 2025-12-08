@@ -5,6 +5,7 @@ uniform float uHeightScale;
 uniform float uHexRadius;
 uniform float uTime;
 uniform float uBiome;
+uniform vec2 uOffset;
 varying vec3 vNormal;
 varying vec3 vWorldPos;
 varying float vHeight;
@@ -77,11 +78,67 @@ float heightFieldDesert(vec2 p, float hexR, out float mask) {
   float h = (dunes + 0.2) * falloff * 0.6; // Menor altura que la montaña
   return max(h, 0.0);
 }
+float heightFieldClay(vec2 p, float hexR, out float mask) {
+  vec2 q = p * 1.3;
+  float d = sdHex(q, hexR);
+  mask = 1.0 - smoothstep(0.02, 0.18, d);
+
+  // Removed offset to center the terrain again
+  // Broaden the falloff so it covers more of the tile
+  float radial = length(q) * 0.45; 
+  float falloff = exp(-radial * radial * 0.6); 
+
+  // Base noise
+  float base = fbm(q * 0.7);
+  
+  // Soft erosion
+  float erosion = ridge(q * 1.2) * 0.15;
+  
+  // Surface detail
+  float detail = fbm(q * 4.0) * 0.05;
+  
+  // Combine
+  float h = (base - erosion + detail) * falloff * mask;
+  
+  // Smooth terracing using continuous function
+  // Transforms linear slope into gentle stairs: y = x - a*sin(x)
+  // This preserves slope continuity (no vertical walls)
+  float steps = 2.0; // Number of terraces
+  float s = h * steps;
+  // 0.12 controls the flattening. < 1/(2pi) ensures monotonicity (no overhangs)
+  h = (s - sin(6.28318 * s) * 0.14) / steps;
+
+  return max(h, 0.0) * 0.9;
+}
+float heightFieldJungle(vec2 p, float hexR, out float mask) {
+  vec2 q = p * 1.3;
+  float d = sdHex(q, hexR);
+  mask = 1.0 - smoothstep(0.02, 0.18, d);
+  
+  // Broad falloff to fill the hexagon
+  float radial = length(q) * 0.45;
+  float falloff = exp(-radial * radial * 0.6);
+
+  // Rolling hills base
+  float hills = fbm(q * 0.5) * 0.4;
+  
+  // "Billowing" noise for tree canopy clumps
+  float canopyFor = noise(q * 4.0);
+  // Abs to make it rounded/clumpy
+  float canopy = (1.0 - abs(canopyFor * 2.0 - 1.0)) * 0.15;
+  
+  // Roughness/Leaves detail
+  float leaves = fbm(q * 15.0) * 0.03;
+
+  // Combine
+  float h = (hills + canopy + leaves + 0.12) * falloff * mask;
+  return max(h, 0.0);
+}
 float sampleHeight(vec2 p, float hexR, out float mask) {
-  if (uBiome > 0.5) {
-    return heightFieldDesert(p, hexR, mask);
-  }
-  return heightField(p, hexR, mask);
+  if (uBiome < 0.5) return heightField(p, hexR, mask);
+  if (uBiome < 1.5) return heightFieldDesert(p, hexR, mask);
+  if (uBiome < 2.5) return heightFieldClay(p, hexR, mask);
+  return heightFieldJungle(p, hexR, mask);
 }
 vec3 calcNormal(vec2 p, float hexR) {
   float e = 0.0025;
@@ -98,7 +155,7 @@ void main() {
   float h = sampleHeight(coord, uHexRadius, mask) * uHeightScale;
   vHexMask = mask;
   vHeight = h;
-  vec3 pos = vec3(coord.x, h, coord.y);
+  vec3 pos = vec3(coord.x + uOffset.x, h, coord.y + uOffset.y);
   vWorldPos = pos;
   vNormal = calcNormal(coord, uHexRadius);
   gl_Position = uViewProj * vec4(pos, 1.0);

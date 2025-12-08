@@ -89,7 +89,7 @@ function buildGrid(size) {
   }
   return {
     positions: new Float32Array(verts),
-    indices: new Uint16Array(indices),
+    indices: new Uint32Array(indices),
     count: indices.length
   };
 }
@@ -100,8 +100,48 @@ let attribLoc;
 let uniformLocs;
 let mesh;
 let currentBiome = 0.0;
+let tileCount = 1;
+let tileOffsets = [[0, 0]];
+const tileSpacing = 2.01;
+let alternateBiomes = false;
+const totalBiomes = 4;
 const camera = { radius: 7.0, yaw: Math.PI * 0.42, pitch: 0.32, target: [0, 1.1, 0] };
 let dragging = false, lastX = 0, lastY = 0;
+
+function updateTileOffsets() {
+  tileOffsets = [];
+  const cols = Math.ceil(Math.sqrt(tileCount));
+  const rows = Math.ceil(tileCount / cols);
+  const inR = 2.35 / 1.35;
+  const rCorner = inR * 2 / Math.sqrt(3);
+  const dx = 1.5 * rCorner;
+  const dy = Math.sqrt(3) * rCorner;
+
+  for (let i = 0; i < tileCount; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = col * dx;
+    const y = row * dy + ((col & 1) ? dy * 0.5 : 0);
+    tileOffsets.push([x, y]);
+  }
+
+
+  // center the layout so it stays balanced around the origin
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [x, y] of tileOffsets) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const cx = (minX + maxX) * 0.5;
+  const cy = (minY + maxY) * 0.5;
+  for (let i = 0; i < tileOffsets.length; i++) {
+    tileOffsets[i][0] -= cx;
+    tileOffsets[i][1] -= cy;
+  }
+}
+
 
 function resize() {
   const dpr = window.devicePixelRatio || 1;
@@ -139,9 +179,40 @@ function setupControls() {
       currentBiome = parseFloat(e.target.value);
     });
   }
+  const altBiomes = document.getElementById("altBiomes");
+  if (altBiomes) {
+    altBiomes.addEventListener("change", (e) => {
+      alternateBiomes = e.target.checked;
+    });
+  }
+
+  const addHexBtn = document.getElementById("addHexBtn");
+  const removeHexBtn = document.getElementById("removeHexBtn");
+  const hexCountLabel = document.getElementById("hexCount");
+  const updateCountLabel = () => { if (hexCountLabel) hexCountLabel.textContent = String(tileCount); };
+  updateCountLabel();
+  if (addHexBtn) {
+    addHexBtn.addEventListener("click", () => {
+      tileCount += 1;
+      updateTileOffsets();
+      updateCountLabel();
+    });
+  }
+  if (removeHexBtn) {
+    removeHexBtn.addEventListener("click", () => {
+      tileCount = Math.max(1, tileCount - 1);
+      updateTileOffsets();
+      updateCountLabel();
+    });
+  }
 }
 
 async function init() {
+  const uintExt = gl.getExtension("OES_element_index_uint");
+  if (!uintExt) {
+    throw new Error("OES_element_index_uint no disponible: no se pueden usar indices de 32 bits");
+  }
+
   const [vertexSrc, fragmentSrc] = await Promise.all([
     loadShaderSource("./vertex.glsl"),
     loadShaderSource("./fragment.glsl")
@@ -158,10 +229,12 @@ async function init() {
     heightScale: gl.getUniformLocation(program, "uHeightScale"),
     time: gl.getUniformLocation(program, "uTime"),
     hexRadius: gl.getUniformLocation(program, "uHexRadius"),
-    biome: gl.getUniformLocation(program, "uBiome")
+    biome: gl.getUniformLocation(program, "uBiome"),
+    offset: gl.getUniformLocation(program, "uOffset")
   };
 
-  mesh = buildGrid(240);
+  mesh = buildGrid(255);
+  updateTileOffsets();
 
   buffers = {
     vao: gl.createVertexArray ? gl.createVertexArray() : null,
@@ -213,9 +286,15 @@ function draw(timeMs) {
   gl.uniform1f(uniformLocs.heightScale, 2.8);
   gl.uniform1f(uniformLocs.time, t);
   gl.uniform1f(uniformLocs.hexRadius, 2.35);
-  gl.uniform1f(uniformLocs.biome, currentBiome);
 
-  gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
+  const baseBiome = Math.round(currentBiome);
+  for (let i = 0; i < tileOffsets.length; i++) {
+    const off = tileOffsets[i];
+    const biomeValue = alternateBiomes ? ((baseBiome + i) % totalBiomes) : currentBiome;
+    gl.uniform1f(uniformLocs.biome, biomeValue);
+    gl.uniform2f(uniformLocs.offset, off[0], off[1]);
+    gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_INT, 0);
+  }
   requestAnimationFrame(draw);
 }
 
