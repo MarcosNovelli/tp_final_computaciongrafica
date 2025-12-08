@@ -64,7 +64,35 @@ const HEIGHT_UNIT = 0.3;
 const GRID_RADIUS = 8;
 
 /**
+ * BIOMA ACTIVO: Selecciona qué bioma se usará para generar todo el terreno.
+ * 
+ * Valores posibles:
+ * - "Grass": Bioma de pasto (verde, alturas moderadas, densidad baja de árboles)
+ * - "Forest": Bioma de bosque (marrón, alturas moderadas-altas, densidad alta de árboles)
+ * 
+ * NOTA: Este valor determina TODO el terreno. Para mezclar biomas (islas de biomas diferentes),
+ * necesitarías una lógica más compleja que está fuera del alcance de este paso.
+ */
+const ACTIVE_BIOME = "Forest"; // Cambiar entre "Grass" y "Forest"
+
+/**
+ * Obtiene el bioma activo actual basado en la constante ACTIVE_BIOME.
+ * 
+ * @returns {Object} Objeto bioma (grassBiome o forestBiome)
+ */
+function getActiveBiome() {
+  if (ACTIVE_BIOME === "Forest") {
+    return forestBiome;
+  } else {
+    return grassBiome; // Por defecto, usa Grass
+  }
+}
+
+/**
  * Densidad de árboles en el bioma Grass (porcentaje de celdas que tendrán un árbol).
+ * 
+ * NOTA: Esta constante se usa como fallback. La densidad real viene del bioma activo
+ * (biome.treeDensity), pero mantenemos esta constante para compatibilidad.
  * 
  * Valor entre 0.0 y 1.0:
  * - 0.0 = ningún árbol
@@ -76,26 +104,39 @@ const TREE_DENSITY = 0.08;
 /**
  * Densidad de ovejas en el bioma Grass (porcentaje de celdas que tendrán una oveja).
  * 
+ * NOTA: Esta constante se usa como fallback. La densidad real viene del bioma activo
+ * (biome.sheepDensity), pero mantenemos esta constante para compatibilidad.
+ * 
  * Valor entre 0.0 y 1.0:
  * - 0.0 = ninguna oveja
  * - 1.0 = una oveja en cada celda
  * - 0.04 = aproximadamente 4% de las celdas tendrán una oveja
  */
-const SHEEP_DENSITY = 0.04;
+const SHEEP_DENSITY = 0.06;
 
 /**
- * Color para la copa de los árboles (verde oscuro estilo low-poly).
+ * Color para la copa de los árboles en el bioma Grass (verde oscuro estilo low-poly).
  * 
  * Se aplica como uniform u_color al fragment shader.
  * Formato: [R, G, B] con valores de 0.0 a 1.0
  */
-const TREE_CROWN_COLOR = [0.1, 0.35, 0.1]; // Verde oscuro para la copa
+const TREE_CROWN_COLOR_GRASS = [0.1, 0.35, 0.1]; // Verde oscuro para la copa en Grass
+
+/**
+ * Color para la copa de los árboles en el bioma Forest (verde muy oscuro para pinos).
+ * 
+ * Se aplica como uniform u_color al fragment shader.
+ * Formato: [R, G, B] con valores de 0.0 a 1.0
+ */
+const TREE_CROWN_COLOR_FOREST = [0.05, 0.25, 0.08]; // Verde muy oscuro para pinos en Forest
 
 /**
  * Color para el tronco de los árboles (marrón oscuro como en la imagen de referencia).
  * 
  * Se aplica como uniform u_color al fragment shader.
  * Formato: [R, G, B] con valores de 0.0 a 1.0
+ * 
+ * NOTA: El color del tronco es el mismo para todos los biomas (es marrón).
  */
 const TREE_TRUNK_COLOR = [0.35, 0.2, 0.12]; // Marrón oscuro para el tronco
 
@@ -325,10 +366,12 @@ const vertexShaderSource = `
 const fragmentShaderSource = `
   precision mediump float;
   
-  uniform vec3 u_color;  // Color RGB del hexágono (pasado desde la aplicación)
+  uniform vec3 u_color;      // Color RGB del hexágono (pasado desde la aplicación)
+  uniform float uIsWater;    // Bandera: 1.0 si es agua, 0.0 si es terreno
+  uniform vec3 u_cameraPos;  // Posición de la cámara en espacio del mundo
   
-  varying vec3 v_normal;    // Normal transformada (interpolada entre vértices)
-  varying vec3 v_position;  // Posición en espacio del mundo (interpolada)
+  varying vec3 v_normal;     // Normal transformada (interpolada entre vértices)
+  varying vec3 v_position;   // Posición en espacio del mundo (interpolada)
   
   void main() {
     // Normaliza la normal interpolada
@@ -338,18 +381,54 @@ const fragmentShaderSource = `
     // Vector apuntando hacia la luz, normalizado
     vec3 L = normalize(vec3(0.6, 1.0, 0.4));
     
-    // Cálculo de iluminación Lambertiana
-    // Producto punto entre normal y dirección de la luz
-    // max(..., 0.0) asegura que no haya iluminación negativa
-    float lambert = max(dot(N, L), 0.0);
+    // Dirección de la vista (desde el fragmento hacia la cámara)
+    // Se calcula desde la posición del fragmento hacia la posición de la cámara
+    // Esto es necesario para el cálculo correcto del brillo especular del agua
+    vec3 V = normalize(u_cameraPos - v_position);
     
     // Color base del hexágono
     vec3 base = u_color;
     
+    // Inicializar iluminación Lambertiana y especular
+    float lambert = max(dot(N, L), 0.0);
+    float spec = 0.0;
+    
+    // MATERIAL ESPECIAL PARA AGUA:
+    // Cuando uIsWater > 0.5, el fragmento es parte de una celda de agua
+    // El agua tiene un comportamiento de iluminación diferente:
+    // - Color base OSCURO (agua profunda) - visible y dominante
+    // - Brillo especular (reflejos) SUTIL sobre el color oscuro
+    if (uIsWater > 0.5) {
+      // AGUA: Color oscuro con reflejos especulares sutiles
+      // Mantener el lambert normal para que el color base del agua sea visible
+      lambert = 0.35 + lambert * 0.5; // Iluminación moderada para ver el color azul oscuro
+      
+      // Cálculo del reflejo especular (Phong) - MUY SUTIL
+      // R es el vector reflejado de la luz respecto a la normal
+      vec3 R = reflect(-L, N);
+      
+      // Ángulo entre el vector reflejado y la dirección de vista
+      // Cuanto más alineados estén, más brillante será el reflejo
+      float specAngle = max(dot(R, V), 0.0);
+      
+      // Potencia del brillo especular (48 = reflejos muy concentrados y sutiles)
+      // Multiplicado por 0.3 para hacer el efecto MUY SUTIL - apenas visible
+      spec = pow(specAngle, 48.0) * 0.3;
+      
+      // Brillo base muy sutil para el agua - solo un toque para distinguirlo del terreno
+      float waterGlow = 0.05; // Brillo base muy sutil
+      spec += waterGlow;
+      
+      // Agregar brillo adicional basado en la normal (muy sutil en superficies horizontales)
+      float topBrightness = max(dot(N, vec3(0.0, 1.0, 0.0)), 0.0); // Brillo en tapas superiores
+      spec += topBrightness * 0.08; // Brillo adicional muy sutil en la superficie plana del agua
+    }
+    
     // Mezcla de color base con iluminación
-    // 35% color ambiente (oscuro) + 65% iluminación Lambertiana
-    // Esto crea sombras suaves manteniendo visibilidad en áreas oscuras
-    vec3 finalColor = base * (0.35 + lambert * 0.65);
+    // Para terreno normal: 25% color ambiente + 75% iluminación Lambertiana
+    // Para agua: color oscuro base + brillo especular prominente (el spec se suma después)
+    // El spec se suma directamente al color final para que los reflejos brillen sobre el color oscuro
+    vec3 finalColor = base * (0.25 + lambert * 0.75) + vec3(spec);
     
     // Output final del fragment shader
     gl_FragColor = vec4(finalColor, 1.0);
@@ -928,20 +1007,9 @@ function createCells(biome) {
       // Usa Simplex Noise para generar alturas suaves y continuas
       // Hexágonos adyacentes tendrán alturas similares, creando un terreno natural
       // El ruido se evalúa en (q * noiseScale, r * noiseScale) y se mapea al rango del bioma
-      const height = generateHeight(q, r, biome, noiseGenerator, noiseScale);
-      
-      // GENERACIÓN DE COLOR usando parámetros del bioma:
-      // Cada bioma tiene su propia función computeColor específica
-      // Si el bioma tiene computeColor, la usa; si no, usa la función genérica
-      let color;
-      if (biome.computeColor && typeof biome.computeColor === 'function') {
-        // Usa la función específica del bioma (ej: computeGrassColor para Grass)
-        // Esta función puede incluir lógica personalizada como ajuste por altura
-        color = biome.computeColor(height, biome);
-      } else {
-        // Fallback: usa la función genérica para biomas sin función personalizada
-        color = generateColor(baseColor, colorVariance);
-      }
+      // Usar heightNoiseScale del bioma si está disponible, si no usar el valor por defecto
+      const biomeNoiseScale = biome.heightNoiseScale !== undefined ? biome.heightNoiseScale : noiseScale;
+      const height = generateHeight(q, r, biome, noiseGenerator, biomeNoiseScale);
       
       // Calcular la posición (x, z) del centro del hexágono en el mundo
       // Esto viene directamente de la función hexToPixel3D (equivalente a axialToWorld)
@@ -949,15 +1017,40 @@ function createCells(biome) {
       // IMPORTANTE: hexToPixel3D retorna {x, y, z}, pero y siempre es 0 (plano XZ)
       const pos = hexToPixel3D(q, r, HEX_RADIUS_WORLD);
       
-      cells.push({
+      // Crear objeto celda ANTES de calcular el color
+      // Esto permite que computeColor pueda modificar propiedades (ej: candidateWater)
+      const cell = {
         q: q,
         r: r,
         worldX: pos.x,  // Posición X del centro del hexágono en el mundo (viene de hexToPixel3D)
         worldZ: pos.z,  // Posición Z del centro del hexágono en el mundo (viene de hexToPixel3D)
         height: height,
-        color: color,
-        biome: biome  // Guardar referencia al bioma para filtrado
-      });
+        biome: biome,  // Guardar referencia al bioma para filtrado
+        candidateWater: false, // Por defecto, no es candidato a agua (se puede cambiar en computeColor)
+        isWater: false, // Se decidirá después mediante detección de clusters
+        waterHeight: null // Altura específica para agua (se asignará en detectWaterClusters)
+      };
+      
+      // GENERACIÓN DE COLOR usando parámetros del bioma:
+      // Cada bioma tiene su propia función computeColor específica
+      // Si el bioma tiene computeColor, la usa; si no, usa la función genérica
+      // IMPORTANTE: Pasamos la celda como tercer parámetro para que computeColor pueda marcarla como agua
+      let color;
+      if (biome.computeColor && typeof biome.computeColor === 'function') {
+        // Usa la función específica del bioma (ej: computeGrassColor para Grass, computeForestColor para Forest)
+        // Esta función puede incluir lógica personalizada como ajuste por altura o detección de agua
+        // La celda se pasa como tercer parámetro para permitir modificar isWater
+        color = biome.computeColor(height, biome, cell);
+      } else {
+        // Fallback: usa la función genérica para biomas sin función personalizada
+        color = generateColor(baseColor, colorVariance);
+      }
+      
+      // Asignar el color calculado a la celda
+      cell.color = color;
+      
+      // Agregar la celda al array
+      cells.push(cell);
     }
   }
   
@@ -965,6 +1058,23 @@ function createCells(biome) {
   console.log(`  - Alturas: ${minHeight} a ${maxHeight}`);
   console.log(`  - Color base: [${baseColor[0].toFixed(2)}, ${baseColor[1].toFixed(2)}, ${baseColor[2].toFixed(2)}]`);
   console.log(`  - Variación de color: ±${colorVariance}`);
+  
+  // DETECCIÓN DE CLUSTERS DE AGUA (solo para bioma Forest)
+  // Después de crear todas las celdas, detectar clusters de agua conectados
+  // Solo los clusters grandes (≥6 celdas) se marcan como agua
+  // Esto evita que aparezcan "pozos random" individuales
+  if (biome.name === "Forest") {
+    const MIN_WATER_CLUSTER = 6; // Tamaño mínimo del cluster para ser considerado agua
+    detectWaterClusters(cells, MIN_WATER_CLUSTER);
+    
+    // Aplicar altura y color de agua a las celdas marcadas como agua
+    for (const cell of cells) {
+      if (cell.isWater && cell.waterHeight !== null) {
+        cell.height = cell.waterHeight; // Altura plana para el agua
+      }
+    }
+  }
+  
   return cells;
 }
 
@@ -1061,6 +1171,147 @@ function createCells(biome) {
  *                        DEBE ser igual a HEX_RADIUS_WORLD para tesselado perfecto
  * @returns {{x: number, y: number, z: number}} Posición 3D (x, y, z) en espacio del mundo
  */
+/**
+ * Obtiene los 6 vecinos de una celda hexagonal en coordenadas axiales.
+ * 
+ * En una grilla hexagonal, cada celda tiene exactamente 6 vecinos:
+ * - (q+1, r), (q-1, r) - Este y Oeste
+ * - (q, r+1), (q, r-1) - Noreste y Suroeste
+ * - (q+1, r-1), (q-1, r+1) - Sureste y Noroeste
+ * 
+ * @param {number} q - Coordenada q del hexágono
+ * @param {number} r - Coordenada r del hexágono
+ * @returns {Array<{q: number, r: number}>} Array con las 6 coordenadas de los vecinos
+ */
+function getHexNeighbors(q, r) {
+  return [
+    { q: q + 1, r: r },      // Este
+    { q: q - 1, r: r },      // Oeste
+    { q: q, r: r + 1 },      // Noreste
+    { q: q, r: r - 1 },      // Suroeste
+    { q: q + 1, r: r - 1 },  // Sureste
+    { q: q - 1, r: r + 1 }   // Noroeste
+  ];
+}
+
+/**
+ * Encuentra un cluster conectado de celdas candidatas a agua usando BFS (Breadth-First Search).
+ * 
+ * RESPONSABILIDAD:
+ * - Partiendo de una celda candidata no visitada, explora todos sus vecinos candidatos
+ * - Retorna todas las celdas del cluster conectado
+ * - Marca las celdas como visitadas durante la búsqueda
+ * 
+ * DETECCIÓN DE CLUSTERS:
+ * - Un cluster es un grupo de celdas candidatas a agua que están conectadas entre sí
+ * - Dos celdas están conectadas si son vecinos hexagonales adyacentes
+ * - Usa BFS para encontrar todos los vecinos conectados recursivamente
+ * 
+ * @param {Object} startCell - Celda inicial del cluster (debe tener candidateWater === true)
+ * @param {Map<string, Object>} cellMap - Map de celdas indexadas por "q,r"
+ * @param {Set<string>} visited - Set de celdas ya visitadas (clave: "q,r")
+ * @returns {Array<Object>} Array de celdas que pertenecen al cluster
+ */
+function findWaterCluster(startCell, cellMap, visited) {
+  const cluster = [];
+  const queue = [startCell];
+  const startKey = `${startCell.q},${startCell.r}`;
+  visited.add(startKey);
+  
+  while (queue.length > 0) {
+    const cell = queue.shift();
+    cluster.push(cell);
+    
+    // Explorar los 6 vecinos hexagonales
+    const neighbors = getHexNeighbors(cell.q, cell.r);
+    for (const neighbor of neighbors) {
+      const neighborKey = `${neighbor.q},${neighbor.r}`;
+      
+      // Si el vecino existe, es candidato y no ha sido visitado, agregarlo al cluster
+      if (!visited.has(neighborKey)) {
+        const neighborCell = cellMap.get(neighborKey);
+        if (neighborCell && neighborCell.candidateWater) {
+          visited.add(neighborKey);
+          queue.push(neighborCell);
+        }
+      }
+    }
+  }
+  
+  return cluster;
+}
+
+/**
+ * Detecta clusters de agua en las celdas y marca solo los clusters grandes como agua.
+ * 
+ * RESPONSABILIDAD:
+ * - Recorre todas las celdas candidatas a agua
+ * - Encuentra clusters conectados usando BFS
+ * - Solo marca como agua los clusters que tengan al menos MIN_WATER_CLUSTER celdas
+ * - Esto evita que aparezcan "pozos random" individuales
+ * 
+ * MIN_WATER_CLUSTER:
+ * - Define el tamaño mínimo que debe tener un cluster para ser considerado agua
+ * - Clusters más pequeños se descartan (no son agua)
+ * - Clusters grandes forman lagunas o ríos coherentes
+ * - Valor recomendado: 6-10 celdas para lagunas pequeñas, más para ríos
+ * 
+ * @param {Array<Object>} cells - Array de todas las celdas del terreno
+ * @param {number} minClusterSize - Tamaño mínimo del cluster para ser considerado agua
+ * @returns {number} Número de clusters de agua encontrados
+ */
+function detectWaterClusters(cells, minClusterSize = 6) {
+  // Crear un Map para acceso rápido a las celdas por coordenadas (q, r)
+  const cellMap = new Map();
+  for (const cell of cells) {
+    const key = `${cell.q},${cell.r}`;
+    cellMap.set(key, cell);
+  }
+  
+  // Set para rastrear celdas ya visitadas durante la búsqueda de clusters
+  const visited = new Set();
+  
+  // Contador de clusters encontrados
+  let clusterCount = 0;
+  let totalWaterCells = 0;
+  
+  // Recorrer todas las celdas candidatas
+  for (const cell of cells) {
+    // Solo procesar celdas candidatas que no hayan sido visitadas
+    if (cell.candidateWater && !visited.has(`${cell.q},${cell.r}`)) {
+      // Encontrar el cluster completo usando BFS
+      const cluster = findWaterCluster(cell, cellMap, visited);
+      
+      // Solo marcar como agua si el cluster es suficientemente grande
+      if (cluster.length >= minClusterSize) {
+        clusterCount++;
+        totalWaterCells += cluster.length;
+        
+        // Marcar todas las celdas del cluster como agua
+        for (const clusterCell of cluster) {
+          clusterCell.isWater = true;
+          // Ajustar altura del agua: usar minHeight directamente o ligeramente por debajo
+          // Esto crea una transición más suave con las celdas de tierra adyacentes
+          // Usar minHeight - 0.1 en lugar de -0.2 para transición más suave
+          clusterCell.waterHeight = clusterCell.biome.minHeight - 0.1;
+          // Asignar color de agua (azul oscuro para que parezca agua profunda)
+          clusterCell.color = [0.06, 0.15, 0.35]; // WATER_COLOR - azul oscuro profundo
+        }
+      } else {
+        // Cluster pequeño: no es agua, marcar como falso positivo
+        for (const clusterCell of cluster) {
+          clusterCell.isWater = false;
+          clusterCell.candidateWater = false;
+        }
+      }
+    }
+  }
+  
+  console.log(`✓ Detección de clusters de agua: ${clusterCount} clusters, ${totalWaterCells} celdas de agua (tamaño mínimo: ${minClusterSize})`);
+  
+  return clusterCount;
+}
+
 function hexToPixel3D(q, r, size = HEX_RADIUS_WORLD) {
   const sqrt3 = Math.sqrt(3);
   
@@ -1321,7 +1572,7 @@ function calculateNormalMatrix(modelMatrix) {
  * @param {Float32Array} viewMatrix - Matriz de vista (cámara)
  * @param {Float32Array} projectionMatrix - Matriz de proyección
  */
-function drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, height, color, viewMatrix, projectionMatrix) {
+function drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, height, color, viewMatrix, projectionMatrix, isWater = false, cameraPos = null) {
   // CONVERSIÓN DE ALTURA LÓGICA A ALTURA VISUAL:
   // - height: altura lógica de la celda (ej: 1, 2, 3) - NO modificar esta lógica
   // - visualHeight: altura visual real en unidades del mundo 3D
@@ -1358,6 +1609,8 @@ function drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, heigh
   const projectionLocation = gl.getUniformLocation(program, 'u_projection');
   const normalMatrixLocation = gl.getUniformLocation(program, 'u_normalMatrix');
   const colorLocation = gl.getUniformLocation(program, 'u_color');
+  const isWaterLocation = gl.getUniformLocation(program, 'uIsWater');
+  const cameraPosLocation = gl.getUniformLocation(program, 'u_cameraPos');
   
   // Configura las matrices en el shader
   gl.uniformMatrix4fv(modelLocation, false, modelMatrix);
@@ -1367,6 +1620,19 @@ function drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, heigh
   
   // Configura el color del hexágono
   gl.uniform3f(colorLocation, color[0], color[1], color[2]);
+  
+  // Configura la bandera de agua (1.0 si es agua, 0.0 si es terreno)
+  gl.uniform1f(isWaterLocation, isWater ? 1.0 : 0.0);
+  
+  // Configura la posición de la cámara (ya se configuró en drawHexGrid, pero lo establecemos aquí también por si se llama directamente)
+  if (cameraPosLocation) {
+    if (cameraPos) {
+      gl.uniform3f(cameraPosLocation, cameraPos[0], cameraPos[1], cameraPos[2]);
+    } else {
+      // Posición aproximada si no se proporciona
+      gl.uniform3f(cameraPosLocation, 5.0, 8.0, 5.0);
+    }
+  }
   
   // Configura el atributo a_position para leer del buffer de posiciones
   // size=3 porque cada vértice tiene 3 componentes (x, y, z)
@@ -1413,7 +1679,7 @@ function drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, heigh
  * @param {Array} cells - Array de celdas con formato { q, r, height, color }
  * @param {number} hexRadius - Radio del hexágono (debe ser HEX_RADIUS_WORLD para tesselado perfecto)
  */
-function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, hexRadius, viewMatrix, projectionMatrix) {
+function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, hexRadius, viewMatrix, projectionMatrix, cameraPos = null) {
   // Limpia el canvas con color de fondo oscuro
   clearCanvas(gl, 0.1, 0.1, 0.15, 1.0);
   
@@ -1423,6 +1689,7 @@ function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, h
   // Si no se proporcionan las matrices, calcularlas automáticamente
   let finalViewMatrix = viewMatrix;
   let finalProjectionMatrix = projectionMatrix;
+  let finalCameraPos = cameraPos;
   
   if (!finalViewMatrix || !finalProjectionMatrix) {
     // Calcula el tamaño del terreno para ajustar la cámara
@@ -1435,24 +1702,63 @@ function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, h
     
     finalViewMatrix = lookAt(eye, center, up);
     
+    // Si no se proporcionó cameraPos, usar la posición de eye calculada
+    if (!finalCameraPos) {
+      finalCameraPos = eye;
+    }
+    
     const aspect = canvas.width / canvas.height;
     finalProjectionMatrix = perspective(60, aspect, 0.1, 100.0);
   }
   
-  // Itera sobre cada celda de la grilla
-  for (const cell of cells) {
-    // Usar directamente las posiciones almacenadas en la celda
-    // cell.worldX y cell.worldZ son el centro exacto del hexágono en el mundo
-    // Estos valores fueron calculados en createCells() usando hexToPixel3D()
-    const x = cell.worldX;
-    const z = cell.worldZ;
-    
-    // Dibuja el prisma en esa posición con la altura y color correspondientes
-    // Nota: y=0 porque la base del hexágono siempre está en el plano XZ
-    drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, 0, z, cell.height, cell.color, finalViewMatrix, finalProjectionMatrix);
+  // RENDERIZADO EN DOS PASOS: Primero terreno, luego agua
+  // Esto asegura que el agua se renderice encima y tenga el efecto especial
+  
+  // Configurar posición de la cámara en el shader (una vez para todos los hexágonos)
+  // Esto es necesario para el cálculo correcto del view direction en el efecto especular del agua
+  const cameraPosLocation = gl.getUniformLocation(program, 'u_cameraPos');
+  if (cameraPosLocation) {
+    if (finalCameraPos) {
+      gl.uniform3f(cameraPosLocation, finalCameraPos[0], finalCameraPos[1], finalCameraPos[2]);
+    } else {
+      // Si no se proporciona, usar una posición aproximada basada en la configuración típica
+      gl.uniform3f(cameraPosLocation, 5.0, 8.0, 5.0);
+    }
   }
   
-  console.log(`✓ Grilla 3D dibujada: ${cells.length} prismas con alturas variables`);
+  // PASO 1: Dibujar todas las celdas de terreno (no agua)
+  for (const cell of cells) {
+    if (!cell.isWater) {
+      // Usar directamente las posiciones almacenadas en la celda
+      // cell.worldX y cell.worldZ son el centro exacto del hexágono en el mundo
+      const x = cell.worldX;
+      const z = cell.worldZ;
+      
+      // Dibuja el prisma en esa posición con la altura y color correspondientes
+      // isWater = false para aplicar iluminación normal
+      drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, 0, z, cell.height, cell.color, finalViewMatrix, finalProjectionMatrix, false, finalCameraPos);
+    }
+  }
+  
+  // PASO 2: Dibujar todas las celdas de agua
+  // El agua se renderiza después para que quede encima y tenga el efecto especial
+  let waterCellCount = 0;
+  for (const cell of cells) {
+    if (cell.isWater) {
+      waterCellCount++;
+      const x = cell.worldX;
+      const z = cell.worldZ;
+      
+      // Dibuja el prisma de agua con altura plana y color azul
+      // isWater = true para activar el material especial de agua en el shader
+      // Esto activa el brillo especular y la iluminación especial del agua
+      // VERIFICACIÓN: asegurar que isWater=true se está pasando correctamente
+      drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, 0, z, cell.height, cell.color, finalViewMatrix, finalProjectionMatrix, true, finalCameraPos);
+    }
+  }
+  
+  const terrainCellCount = cells.length - waterCellCount;
+  console.log(`✓ Grilla 3D dibujada: ${terrainCellCount} prismas de terreno + ${waterCellCount} prismas de agua (total: ${cells.length})`);
 }
 
 /**
@@ -1493,6 +1799,7 @@ function drawMesh(gl, program, positionBuffer, normalBuffer, indexBuffer, indexC
   const projectionLocation = gl.getUniformLocation(program, 'u_projection');
   const normalMatrixLocation = gl.getUniformLocation(program, 'u_normalMatrix');
   const colorLocation = gl.getUniformLocation(program, 'u_color');
+  const isWaterLocation = gl.getUniformLocation(program, 'uIsWater');
   
   // Configura las matrices en el shader
   gl.uniformMatrix4fv(modelLocation, false, modelMatrix);
@@ -1502,6 +1809,10 @@ function drawMesh(gl, program, positionBuffer, normalBuffer, indexBuffer, indexC
   
   // Configura el color del objeto
   gl.uniform3f(colorLocation, color[0], color[1], color[2]);
+  
+  // IMPORTANTE: Establecer uIsWater = 0.0 para objetos que NO son agua
+  // Esto asegura que árboles, ovejas y terreno normal no reciban el efecto de agua
+  gl.uniform1f(isWaterLocation, 0.0);
   
   // Configura el atributo a_position para leer del buffer de posiciones
   setupAttribute(gl, program, 'a_position', positionBuffer, 3);
@@ -1528,6 +1839,22 @@ function drawMesh(gl, program, positionBuffer, normalBuffer, indexBuffer, indexC
  * @param {Float32Array} projectionMatrix - Matriz de proyección
  */
 function drawTree(gl, program, treeMesh, modelMatrix, viewMatrix, projectionMatrix) {
+  // Usar la versión con color personalizado, pasando el color por defecto de Grass
+  drawTreeWithColor(gl, program, treeMesh, modelMatrix, viewMatrix, projectionMatrix, TREE_CROWN_COLOR_GRASS);
+}
+
+/**
+ * Dibuja un árbol completo (tronco + copa) con colores diferentes y color de copa personalizable.
+ * 
+ * @param {WebGLRenderingContext} gl - Contexto WebGL
+ * @param {WebGLProgram} program - Programa de shaders compilado
+ * @param {Object} treeMesh - Mesh del árbol con trunkIndexCount y crownIndexCount
+ * @param {Float32Array} modelMatrix - Matriz modelo del árbol
+ * @param {Float32Array} viewMatrix - Matriz de vista
+ * @param {Float32Array} projectionMatrix - Matriz de proyección
+ * @param {number[]} crownColor - Color RGB [r, g, b] para la copa del árbol
+ */
+function drawTreeWithColor(gl, program, treeMesh, modelMatrix, viewMatrix, projectionMatrix, crownColor) {
   // Dibujar el tronco (marrón)
   drawMesh(
     gl, program,
@@ -1542,7 +1869,7 @@ function drawTree(gl, program, treeMesh, modelMatrix, viewMatrix, projectionMatr
     0 // Offset: empieza desde el inicio
   );
   
-  // Dibujar la copa (verde)
+  // Dibujar la copa (color personalizado según el bioma)
   drawMesh(
     gl, program,
     treeMesh.positionBuffer,
@@ -1552,7 +1879,7 @@ function drawTree(gl, program, treeMesh, modelMatrix, viewMatrix, projectionMatr
     modelMatrix,
     viewMatrix,
     projectionMatrix,
-    TREE_CROWN_COLOR,
+    crownColor,
     treeMesh.crownIndexOffset * 2 // Offset en bytes (Uint16Array = 2 bytes por índice)
   );
 }
@@ -1587,19 +1914,32 @@ function drawTree(gl, program, treeMesh, modelMatrix, viewMatrix, projectionMatr
  * @param {Object} targetBiome - Bioma objetivo para generar árboles (por defecto grassBiome)
  * @returns {Array<{modelMatrix: Float32Array}>} Array de instancias de árboles
  */
-function createTreeInstances(cells, targetBiome = grassBiome) {
+function createTreeInstances(cells, targetBiome = null) {
+  // Si no se especifica un bioma, usar el bioma activo
+  if (!targetBiome) {
+    targetBiome = getActiveBiome();
+  }
+  
   const treeInstances = [];
-  let grassCellsCount = 0;
+  let biomeCellsCount = 0;
+  
+  // Obtener la densidad de árboles del bioma (cada bioma puede tener su propia densidad)
+  const treeDensity = targetBiome.treeDensity !== undefined ? targetBiome.treeDensity : TREE_DENSITY;
   
   // Recorrer todas las celdas del terreno
   for (const cell of cells) {
-    // FILTRAR: Solo generar árboles en celdas del bioma objetivo (por defecto Grass)
+    // FILTRAR: Solo generar árboles en celdas del bioma objetivo
     // Esto evita generar árboles fuera del bioma o en biomas incorrectos
     if (cell.biome !== targetBiome) {
       continue; // Saltar celdas que no pertenecen al bioma objetivo
     }
     
-    grassCellsCount++;
+    // FILTRAR: Saltar celdas de agua (no hay árboles en el agua)
+    if (cell.isWater) {
+      continue; // Esta celda es agua, no poner árbol
+    }
+    
+    biomeCellsCount++;
     
     // EVITAR CONFLICTOS: Saltar celdas que ya tienen una oveja
     // Esto asegura que árboles y ovejas no compartan el mismo hexágono
@@ -1608,7 +1948,8 @@ function createTreeInstances(cells, targetBiome = grassBiome) {
     }
     
     // Decidir aleatoriamente si esta celda debe tener un árbol
-    if (Math.random() >= TREE_DENSITY) {
+    // Usar la densidad del bioma (cada bioma puede tener diferente densidad)
+    if (Math.random() >= treeDensity) {
       continue; // No poner árbol en esta celda
     }
     
@@ -1721,9 +2062,10 @@ function createTreeInstances(cells, targetBiome = grassBiome) {
       modelMatrix: modelMatrix
     });
   }
-  
-  console.log(`✓ ${treeInstances.length} árboles instanciados sobre ${grassCellsCount} celdas de Grass (de ${cells.length} totales, densidad: ${(TREE_DENSITY * 100).toFixed(1)}%)`);
-  
+
+  const biomeName = targetBiome.name || "Unknown";
+  console.log(`✓ ${treeInstances.length} árboles instanciados sobre ${biomeCellsCount} celdas de ${biomeName} (de ${cells.length} totales, densidad: ${(treeDensity * 100).toFixed(1)}%)`);
+
   return treeInstances;
 }
 
@@ -1734,11 +2076,19 @@ function createTreeInstances(cells, targetBiome = grassBiome) {
  * @param {Object} targetBiome - Bioma objetivo para generar ovejas (por defecto grassBiome)
  * @returns {Array<{modelMatrix: Float32Array}>} Array de instancias de ovejas
  */
-function createSheepInstances(cells, targetBiome = grassBiome) {
+function createSheepInstances(cells, targetBiome = null) {
+  // Si no se especifica un bioma, usar el bioma activo
+  if (!targetBiome) {
+    targetBiome = getActiveBiome();
+  }
+  
   const sheepInstances = [];
   let validCells = 0;
   let skippedBorder = 0;
   let skippedNoHeight = 0;
+  
+  // Obtener la densidad de ovejas del bioma (cada bioma puede tener su propia densidad)
+  const sheepDensity = targetBiome.sheepDensity !== undefined ? targetBiome.sheepDensity : SHEEP_DENSITY;
   
   // MARGEN DE SEGURIDAD: Excluir celdas muy cerca del borde para evitar ovejas fuera del terreno
   // El modelo de oveja puede extenderse un poco fuera del hexágono, así que dejamos un margen
@@ -1747,6 +2097,16 @@ function createSheepInstances(cells, targetBiome = grassBiome) {
   for (const cell of cells) {
     // Solo generar ovejas en celdas del bioma objetivo
     if (cell.biome !== targetBiome) {
+      continue;
+    }
+    
+    // FILTRAR: Saltar celdas de agua (no hay ovejas en el agua)
+    if (cell.isWater) {
+      continue; // Esta celda es agua, no poner oveja
+    }
+    
+    // FILTRAR: No generar ovejas en celdas ya ocupadas por árboles
+    if (cell.occupied) {
       continue;
     }
     
@@ -1774,10 +2134,11 @@ function createSheepInstances(cells, targetBiome = grassBiome) {
       continue;
     }
     
-    // Decidir aleatoriamente si esta celda debe tener una oveja
-    if (Math.random() >= SHEEP_DENSITY) {
-      continue;
-    }
+      // Decidir aleatoriamente si esta celda debe tener una oveja
+      // Usar la densidad del bioma (cada bioma puede tener diferente densidad)
+      if (Math.random() >= sheepDensity) {
+        continue;
+      }
     
     // MARCADO DE CELDA OCUPADA: Marcar esta celda como ocupada por una oveja
     // Esto evita que los árboles se generen en el mismo hexágono
@@ -1846,10 +2207,11 @@ function createSheepInstances(cells, targetBiome = grassBiome) {
     });
   }
   
-  console.log(`✓ ${sheepInstances.length} ovejas instanciadas sobre ${validCells} celdas válidas de Grass`);
+  const biomeName = targetBiome.name || "Unknown";
+  console.log(`✓ ${sheepInstances.length} ovejas instanciadas sobre ${validCells} celdas válidas de ${biomeName} (densidad: ${(sheepDensity * 100).toFixed(1)}%)`);
   if (skippedBorder > 0) console.log(`  (saltadas ${skippedBorder} celdas cerca del borde por seguridad)`);
   if (skippedNoHeight > 0) console.log(`  (saltadas ${skippedNoHeight} celdas sin altura válida)`);
-  
+
   return sheepInstances;
 }
 
@@ -1900,16 +2262,19 @@ async function main() {
     return;
   }
   
-  // Paso 3: Usar el bioma de pasto (grass biome)
-  // El bioma se carga desde biomes/grassBiome.js
-  // grassBiome está definido en ese archivo y expuesto globalmente
-  
-  // Paso 4: Crear estructura de celdas usando los parámetros del bioma
-  // Cada celda tiene { q, r, height, color }
+  // Paso 3: Obtener el bioma activo (Grass o Forest)
+  // El bioma se selecciona usando la constante ACTIVE_BIOME
+  // getActiveBiome() retorna el bioma correspondiente (grassBiome o forestBiome)
+  const activeBiome = getActiveBiome();
+  console.log(`✓ Bioma activo: ${activeBiome.name || "Unknown"}`);
+
+  // Paso 4: Crear estructura de celdas usando los parámetros del bioma activo
+  // Cada celda tiene { q, r, height, color, biome, isWater, ... }
   // - height: generado entre minHeight y maxHeight del bioma usando ruido
-  // - color: generado desde baseColor con variación colorVariance
+  // - color: generado desde baseColor con variación colorVariance (función específica del bioma)
+  // - isWater: marcado por computeColor si la celda es agua (opcional, solo Forest por ahora)
   // Genera un terreno hexagonal completo con radio GRID_RADIUS
-  const cells = createCells(grassBiome);
+  const cells = createCells(activeBiome);
   
   // Paso 5: Crear datos del prisma hexagonal base (altura = 1.0) con normales
   // IMPORTANTE: Usamos HEX_RADIUS_WORLD como única fuente de verdad para el tamaño del hexágono
@@ -1957,17 +2322,19 @@ async function main() {
   }
   
   // Paso 9: Crear instancias de árboles distribuidas sobre el terreno
-  // Solo las celdas del bioma Grass pueden tener árboles
-  // La densidad está controlada por TREE_DENSITY (8% por defecto)
+  // Solo las celdas del bioma activo pueden tener árboles
+  // La densidad está controlada por biome.treeDensity (cada bioma tiene su propia densidad)
   // Las posiciones (x, z) se usan directamente de las celdas (ya calculadas)
-  const treeInstances = createTreeInstances(cells, grassBiome);
+  // No se generan árboles en celdas de agua
+  const treeInstances = createTreeInstances(cells, activeBiome);
   
   // Paso 10: Crear instancias de ovejas distribuidas sobre el terreno
-  // Solo las celdas del bioma Grass pueden tener ovejas
-  // La densidad está controlada por SHEEP_DENSITY (4% por defecto)
+  // Solo las celdas del bioma activo pueden tener ovejas
+  // La densidad está controlada por biome.sheepDensity (cada bioma tiene su propia densidad)
   // Las posiciones (x, z) se usan directamente de las celdas (ya calculadas)
   // Cada oveja está perfectamente centrada en un hexágono usando cell.worldX y cell.worldZ
-  const sheepInstances = createSheepInstances(cells, grassBiome);
+  // No se generan ovejas en celdas de agua
+  const sheepInstances = createSheepInstances(cells, activeBiome);
   
   // Paso 11: Preparar matrices de vista y proyección (compartidas para terreno, árboles y ovejas)
   // Estas matrices se calculan una vez y se usan para todos los objetos
@@ -1982,18 +2349,26 @@ async function main() {
   
   // Paso 12: Dibujar el terreno primero (hexágonos)
   // El terreno se dibuja antes que los objetos para que queden encima visualmente
-  drawHexGrid(gl, program, positionBuffer, normalBuffer, webgl.canvas, cells, HEX_RADIUS_WORLD, viewMatrix, projectionMatrix);
+  drawHexGrid(gl, program, positionBuffer, normalBuffer, webgl.canvas, cells, HEX_RADIUS_WORLD, viewMatrix, projectionMatrix, eye);
   
   // Paso 13: Dibujar todos los árboles encima del terreno
   // Cada árbol se renderiza usando su matriz modelo individual (con rotación y escala aleatorias)
   // Todos los árboles comparten el mismo mesh (treeMesh) pero tienen diferentes transformaciones
   // Los árboles se dibujan con colores diferentes para tronco (marrón) y copa (verde)
+  // El color de la copa varía según el bioma: más oscuro en Forest (pinos)
   if (treeInstances.length > 0) {
+    // Seleccionar el color de la copa según el bioma activo
+    const treeCrownColor = activeBiome.name === "Forest" 
+      ? TREE_CROWN_COLOR_FOREST 
+      : TREE_CROWN_COLOR_GRASS;
+    
     for (const tree of treeInstances) {
-      // drawTree dibuja tanto el tronco como la copa con sus colores respectivos
-      drawTree(gl, program, treeMesh, tree.modelMatrix, viewMatrix, projectionMatrix);
+      // drawTreeWithColor dibuja tanto el tronco como la copa con sus colores respectivos
+      // Pasa el color de la copa personalizado según el bioma
+      drawTreeWithColor(gl, program, treeMesh, tree.modelMatrix, viewMatrix, projectionMatrix, treeCrownColor);
     }
-    console.log(`✓ ${treeInstances.length} árboles renderizados (tronco marrón + copa verde)`);
+    const colorName = activeBiome.name === "Forest" ? "verde muy oscuro (pinos)" : "verde oscuro";
+    console.log(`✓ ${treeInstances.length} árboles renderizados (tronco marrón + copa ${colorName})`);
   }
   
   // Paso 14: Dibujar todas las ovejas encima del terreno
