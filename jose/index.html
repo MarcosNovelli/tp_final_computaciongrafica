@@ -80,6 +80,10 @@
          <script src="biomes/clayBiome.js"></script>
          <script src="biomes/desertBiome.js"></script>
          <script src="biomes/wheatBiome.js"></script>
+         <!-- Cargar módulos del sistema de mundo (Tile y Board) DESPUÉS de los biomas -->
+         <!-- Estos módulos necesitan que los biomas ya estén definidos -->
+         <script src="world/tile.js"></script>
+         <script src="world/board.js"></script>
          <!-- main() se ejecuta automáticamente cuando el DOM está listo, después de cargar todos los scripts -->
 </body>
 </html>

@@ -73,7 +73,44 @@ const GRID_RADIUS = 8;
  * NOTA: Este valor determina TODO el terreno. Para mezclar biomas (islas de biomas diferentes),
  * necesitarías una lógica más compleja que está fuera del alcance de este paso.
  */
-const ACTIVE_BIOME = "Wheat"; // Cambiar entre "Grass", "Forest", "Rock", "Clay" y "Wheat"
+/**
+ * MODO DE VISUALIZACIÓN: Selecciona cómo se muestra el mundo.
+ * 
+ * Valores posibles:
+ * - "singleBiome": Modo actual - una sola isla/tile de un bioma
+ * - "board": Nuevo modo - tablero con múltiples tiles, cada uno con su bioma
+ */
+const VIEW_MODE = "board"; // Cambiar entre "singleBiome" y "board"
+
+/**
+ * BIOMA ACTIVO: Solo se usa en modo "singleBiome".
+ * En modo "board", cada tile tiene su propio bioma asignado.
+ * 
+ * Valores posibles:
+ * - "Grass": Bioma de pasto (verde, alturas moderadas, densidad baja de árboles)
+ * - "Forest": Bioma de bosque (marrón, alturas moderadas-altas, densidad alta de árboles)
+ * - "Rock": Bioma de montaña (verde/roca/nieve, alturas muy altas)
+ * - "Clay": Bioma de arcilla (cobre/roca/pasto, alturas moderadas)
+ * - "Wheat": Bioma de trigo (naranja arcillado, terreno plano, trigo denso)
+ */
+const ACTIVE_BIOME = "Grass"; // Cambiar entre "Grass", "Forest", "Rock", "Clay" y "Wheat"
+
+/**
+ * CONFIGURACIÓN DEL TABLERO (solo se usa en modo "board"):
+ * - boardWidth: Número de tiles en el eje X (columnas)
+ * - boardHeight: Número de tiles en el eje Y (filas)
+ */
+/**
+ * CONFIGURACIÓN DEL TABLERO (solo se usa en modo "board"):
+ * - BOARD_WIDTH: Número de tiles en el eje X (columnas)
+ * - BOARD_HEIGHT: Número de tiles en el eje Y (filas)
+ * 
+ * TAMAÑO 5×5:
+ * El tablero genera exactamente 25 tiles (5×5) organizados en una grilla hexagonal.
+ * Cada tile es un "hexágono grande" que contiene GRID_RADIUS hexágonos pequeños.
+ */
+const BOARD_WIDTH = 5;  // Número de tiles en X (5 para tablero 5×5)
+const BOARD_HEIGHT = 5;  // Número de tiles en Y (5 para tablero 5×5)
 
 /**
  * Obtiene el bioma activo actual basado en la constante ACTIVE_BIOME.
@@ -156,17 +193,25 @@ const TREE_TRUNK_COLOR = [0.35, 0.2, 0.12]; // Marrón oscuro para el tronco
  * - La conversión de coordenadas axiales a posiciones 3D (hexToPixel3D)
  * 
  * RELACIÓN CON LA FÓRMULA DE TESELADO:
- * Para hexágonos "pointy-top" (con un vértice apuntando hacia arriba), la fórmula
+ * Para hexágonos "flat-top" (con un lado plano horizontal), la fórmula
  * estándar para convertir coordenadas axiales (q, r) a posición (x, z) es:
  * 
- *   x = HEX_RADIUS_WORLD * sqrt(3) * (q + r / 2.0)
- *   z = HEX_RADIUS_WORLD * 1.5 * r
+ *   x = HEX_RADIUS_WORLD * 1.5 * q
+ *   z = HEX_RADIUS_WORLD * sqrt(3) * (r + q / 2.0)
  * 
- * Esta fórmula garantiza que los hexágonos se toquen perfectamente en sus bordes
- * sin huecos ni solapamientos, formando un mosaico perfecto.
+ * Esta fórmula garantiza que los hexágonos se toquen perfectamente en sus LADOS
+ * (no en las puntas) sin huecos ni solapamientos, formando un mosaico perfecto
+ * donde cada lado está en contacto directo con otro lado.
+ * 
+ * Para hexágonos flat-top con radio r (centro a vértice):
+ * - Ancho (vértice a vértice) = 2 * r
+ * - Altura (borde plano a borde plano) = r * sqrt(3)
+ * - Apotema (centro a borde plano) = r * sqrt(3) / 2
  * 
  * La distancia entre centros de hexágonos adyacentes es exactamente:
- *   HEX_RADIUS_WORLD * sqrt(3)
+ * - Horizontal (misma fila): HEX_RADIUS_WORLD * 1.5 = 3/4 del ancho
+ * - Vertical (filas adyacentes): HEX_RADIUS_WORLD * sqrt(3) = altura del hexágono
+ * - Vertical (filas adyacentes): HEX_RADIUS_WORLD * 1.5
  * 
  * IMPORTANTE: Este valor debe ser el MISMO tanto para generar los vértices del
  * hexágono como para calcular las posiciones de los centros en la grilla.
@@ -513,7 +558,8 @@ function calculateTriangleNormal(v1, v2, v3) {
  * - El parámetro `radius` DEBE ser exactamente igual a HEX_RADIUS_WORLD
  * - Esta es la MISMA constante usada en hexToPixel3D para calcular las posiciones
  * - Garantiza que el tamaño físico del hexágono coincida exactamente con el espaciado
- *   de la grilla, creando un mosaico perfecto sin huecos ni solapamientos
+ *   de la grilla, creando un mosaico perfecto donde los LADOS se tocan directamente
+ *   (orientación flat-top) sin huecos ni solapamientos
  * 
  * NORMALES:
  * - Se calculan por cara (flat shading), no por vértice (smooth)
@@ -544,38 +590,31 @@ function createHexagonPrismData(radius = HEX_RADIUS_WORLD, height = 1.0) {
   const numVertices = 6;
   const angleStep = (2 * Math.PI) / numVertices;
   
-  // OFFSET DE ORIENTACIÓN PARA HEXÁGONOS "POINTY-TOP":
-  // Para hexágonos pointy-top, un vértice debe estar apuntando hacia arriba (+Z).
+  // OFFSET DE ORIENTACIÓN PARA HEXÁGONOS "FLAT-TOP":
+  // Para hexágonos flat-top, un LADO PLANO debe estar horizontal (arriba/abajo).
   // 
-  // La fórmula de teselado estándar (x = size * sqrt(3) * (q + r/2), z = size * 1.5 * r)
-  // asume que los hexágonos están orientados con un vértice apuntando hacia arriba.
+  // La fórmula de teselado para flat-top (x = size * 1.5 * q, z = size * sqrt(3) * (r + q/2))
+  // asume que los hexágonos están orientados con un lado plano horizontal.
   //
   // Si generamos vértices empezando con angle = 0:
   //   vértice 0: (radius, 0) - apunta hacia la derecha (+X)
   //   vértice 1: (radius*cos(60°), radius*sin(60°)) - apunta diagonal arriba-derecha
   //
-  // Para hexágonos pointy-top, necesitamos que un vértice esté en la parte superior.
-  // El offset estándar es π/6 (30 grados), lo que rotará el hexágono para que
-  // un vértice quede perfectamente arriba, alineado con la orientación esperada
-  // por la fórmula de teselado.
+  // Para hexágonos flat-top, necesitamos que un lado plano esté arriba.
+  // Con angleOffset = 0, el primer vértice está en (radius, 0) y el siguiente en
+  // (radius*cos(60°), radius*sin(60°)), lo que coloca un lado plano horizontal arriba.
   //
-  // Con offset = π/6:
-  //   vértice 0: angle = π/6 → (radius*cos(30°), radius*sin(30°))
-  //   Esto coloca el primer vértice aproximadamente arriba-derecha
-  //   Y el vértice en -π/6 (o 11π/6) estará arriba-izquierda
-  //   El vértice en la parte superior estará entre estos dos
-  //
-  // IMPORTANTE: Este offset asegura que la geometría del hexágono coincida con
-  // la orientación asumida por la fórmula de teselado, permitiendo que los hexágonos
-  // encajen perfectamente sin rotaciones adicionales.
-  const angleOffset = Math.PI / 6; // 30 grados - offset estándar para pointy-top
+  // IMPORTANTE: Con angleOffset = 0, los hexágonos tienen sus lados planos
+  // horizontales, permitiendo que los LADOS se toquen directamente (no las puntas),
+  // creando el mosaico perfecto que queremos.
+  const angleOffset = 0; // Sin rotación - orientación flat-top (lados planos arriba)
   
   // Calcular los 6 vértices del hexágono (para ambas tapas)
   const bottomVertices = [];
   const topVertices = [];
   
   for (let i = 0; i < numVertices; i++) {
-    // Aplicar el offset para que el primer vértice esté arriba (pointy-top orientation)
+    // Aplicar el offset para orientación flat-top (lados planos horizontales)
     const angle = i * angleStep + angleOffset;
     const x = radius * Math.cos(angle);
     const z = radius * Math.sin(angle);
@@ -924,9 +963,10 @@ function generateColor(baseColor, colorVariance) {
  * Esto crea un terreno hexagonal completo en lugar de una grilla rectangular.
  * 
  * @param {Object} biome - Objeto bioma con { baseColor, minHeight, maxHeight, colorVariance }
+ * @param {Object} noiseGenerator - Generador de ruido Simplex opcional (si no se proporciona, se crea uno nuevo)
  * @returns {Array} Array de objetos { q, r, height, color }
  */
-function createCells(biome) {
+function createCells(biome, noiseGenerator = null) {
   const cells = [];
   
   // Extrae parámetros del bioma (algunos pueden ser undefined para biomas especiales como Rock)
@@ -935,83 +975,117 @@ function createCells(biome) {
   const maxHeight = biome.maxHeight;
   const colorVariance = biome.colorVariance;
   
-  // Inicializa el generador de ruido Simplex
-  // Inicializar SimplexNoise para generar alturas suaves del terreno
-  // IMPORTANTE: SimplexNoise debe estar disponible globalmente después de cargar el script del CDN
-  // La versión 3.0.1 puede exponer la API de diferentes formas dependiendo del build del CDN
-  let noise2D = null;
+  // Inicializa el generador de ruido Simplex (o usa el proporcionado)
+  // Si noiseGenerator ya fue proporcionado, puede ser:
+  // 1. Un generador normal con noise2D (función)
+  // 2. Un wrapper con offset (de board.js) que tiene noise2D como función wrapper que aplica offset
+  // 3. Un objeto con offsetX/offsetZ pero noise2D null (será creado y luego aplicado el offset)
+  // 4. null/undefined, en cuyo caso creamos uno nuevo
+  let finalNoiseGenerator = noiseGenerator;
+  let noiseOffsetX = 0;
+  let noiseOffsetZ = 0;
   
-  try {
-    // Verificar disponibilidad de SimplexNoise en diferentes ubicaciones posibles
-    let SimplexNoiseModule = null;
-    
-    // Opción 1: window.SimplexNoise (más común desde CDN UMD)
-    if (typeof window !== 'undefined' && window.SimplexNoise) {
-      SimplexNoiseModule = window.SimplexNoise;
-    }
-    // Opción 2: SimplexNoise global (sin window)
-    else if (typeof SimplexNoise !== 'undefined') {
-      SimplexNoiseModule = SimplexNoise;
-    }
-    // Opción 3: window.createNoise2D directamente (si está expuesto)
-    else if (typeof window !== 'undefined' && typeof window.createNoise2D === 'function') {
-      noise2D = window.createNoise2D();
-      console.log('✓ SimplexNoise cargado y funcionando (createNoise2D directo en window)');
-    }
-    
-    // Si encontramos el módulo, crear la función de ruido
-    if (SimplexNoiseModule && !noise2D) {
-      // API nueva (v3.x): createNoise2D()
-      if (typeof SimplexNoiseModule.createNoise2D === 'function') {
-        noise2D = SimplexNoiseModule.createNoise2D();
-        console.log('✓ SimplexNoise cargado y funcionando (API v3.x: createNoise2D)');
-      }
-      // API antigua (v2.x): new SimplexNoise()
-      else if (typeof SimplexNoiseModule === 'function') {
-        const simplex = new SimplexNoiseModule();
-        noise2D = simplex.noise2D.bind(simplex);
-        console.log('✓ SimplexNoise cargado y funcionando (API v2.x: constructor)');
-      }
-      else {
-        throw new Error('SimplexNoise encontrado pero sin API reconocida (ni createNoise2D ni constructor)');
-      }
-    }
-    
-    // Verificar que tenemos una función de ruido válida
-    if (!noise2D || typeof noise2D !== 'function') {
-      throw new Error('No se pudo crear la función noise2D. SimplexNoise podría no estar cargado correctamente.');
-    }
-    
-    // Probar que la función funciona correctamente con una llamada de prueba
-    const testValue = noise2D(0, 0);
-    if (typeof testValue !== 'number' || isNaN(testValue) || !isFinite(testValue)) {
-      throw new Error('noise2D devolvió un valor inválido: ' + testValue);
-    }
-    
-    console.log(`✓ SimplexNoise verificado: testValue = ${testValue.toFixed(6)} (debe estar entre -1 y 1)`);
-    
-  } catch (error) {
-    console.error('❌ Error crítico al inicializar SimplexNoise:', error);
-    console.error('');
-    console.error('DIAGNÓSTICO:');
-    console.error('  - window existe:', typeof window !== 'undefined');
-    console.error('  - window.SimplexNoise existe:', typeof window !== 'undefined' && typeof window.SimplexNoise !== 'undefined');
-    console.error('  - SimplexNoise global existe:', typeof SimplexNoise !== 'undefined');
-    console.error('');
-    console.error('SOLUCIÓN:');
-    console.error('  1. Verifica que index.html carga: <script src="https://cdn.jsdelivr.net/npm/simplex-noise@3.0.1/simplex-noise.js"></script>');
-    console.error('  2. Verifica que el script se carga ANTES de main.js');
-    console.error('  3. Abre la consola del navegador y escribe: window.SimplexNoise');
-    console.error('     Debería mostrar un objeto o función, no "undefined"');
-    console.error('');
-    throw new Error('FALLÓ la inicialización de SimplexNoise. ' + error.message);
+  // Si el generador tiene offset pero noise2D es null, guardar el offset para aplicarlo después
+  if (finalNoiseGenerator && finalNoiseGenerator.offsetX !== undefined && !finalNoiseGenerator.noise2D) {
+    noiseOffsetX = finalNoiseGenerator.offsetX;
+    noiseOffsetZ = finalNoiseGenerator.offsetZ;
+    finalNoiseGenerator = null; // Crearemos uno nuevo y aplicaremos el offset
   }
   
-  // Crear wrapper con la interfaz que espera generateHeight
-  // noise2D ya es una función que acepta (x, y) y devuelve un número entre -1 y 1
-  const noiseGenerator = {
-    noise2D: noise2D
-  };
+  // Si no hay generador válido, crear uno nuevo
+  if (!finalNoiseGenerator || (finalNoiseGenerator && typeof finalNoiseGenerator.noise2D !== 'function')) {
+    // Crear nuevo generador de ruido (lógica existente)
+    // Inicializar SimplexNoise para generar alturas suaves del terreno
+    // IMPORTANTE: SimplexNoise debe estar disponible globalmente después de cargar el script del CDN
+    // La versión 3.0.1 puede exponer la API de diferentes formas dependiendo del build del CDN
+    let noise2D = null;
+    
+    try {
+      // Verificar disponibilidad de SimplexNoise en diferentes ubicaciones posibles
+      let SimplexNoiseModule = null;
+      
+      // Opción 1: window.SimplexNoise (más común desde CDN UMD)
+      if (typeof window !== 'undefined' && window.SimplexNoise) {
+        SimplexNoiseModule = window.SimplexNoise;
+      }
+      // Opción 2: SimplexNoise global (sin window)
+      else if (typeof SimplexNoise !== 'undefined') {
+        SimplexNoiseModule = SimplexNoise;
+      }
+      // Opción 3: window.createNoise2D directamente (si está expuesto)
+      else if (typeof window !== 'undefined' && typeof window.createNoise2D === 'function') {
+        noise2D = window.createNoise2D();
+        console.log('✓ SimplexNoise cargado y funcionando (createNoise2D directo en window)');
+      }
+      
+      // Si encontramos el módulo, crear la función de ruido
+      if (SimplexNoiseModule && !noise2D) {
+        // API nueva (v3.x): createNoise2D()
+        if (typeof SimplexNoiseModule.createNoise2D === 'function') {
+          noise2D = SimplexNoiseModule.createNoise2D();
+          console.log('✓ SimplexNoise cargado y funcionando (API v3.x: createNoise2D)');
+        }
+        // API antigua (v2.x): new SimplexNoise()
+        else if (typeof SimplexNoiseModule === 'function') {
+          const simplex = new SimplexNoiseModule();
+          noise2D = simplex.noise2D.bind(simplex);
+          console.log('✓ SimplexNoise cargado y funcionando (API v2.x: constructor)');
+        }
+        else {
+          throw new Error('SimplexNoise encontrado pero sin API reconocida (ni createNoise2D ni constructor)');
+        }
+      }
+      
+      // Verificar que tenemos una función de ruido válida
+      if (!noise2D || typeof noise2D !== 'function') {
+        throw new Error('No se pudo crear la función noise2D. SimplexNoise podría no estar cargado correctamente.');
+      }
+      
+      // Probar que la función funciona correctamente con una llamada de prueba
+      const testValue = noise2D(0, 0);
+      if (typeof testValue !== 'number' || isNaN(testValue) || !isFinite(testValue)) {
+        throw new Error('noise2D devolvió un valor inválido: ' + testValue);
+      }
+      
+      console.log(`✓ SimplexNoise verificado: testValue = ${testValue.toFixed(6)} (debe estar entre -1 y 1)`);
+      
+      // Crear wrapper con la interfaz que espera generateHeight
+      // Si tenemos un offset guardado (de board.js), aplicarlo ahora
+      if (noiseOffsetX !== 0 || noiseOffsetZ !== 0) {
+        // Crear wrapper que aplica el offset a las coordenadas antes de evaluar el ruido
+        finalNoiseGenerator = {
+          noise2D: function(x, z) {
+            return noise2D(x + noiseOffsetX, z + noiseOffsetZ);
+          }
+        };
+      } else {
+        // Generador normal sin offset
+        finalNoiseGenerator = {
+          noise2D: noise2D
+        };
+      }
+      
+    } catch (error) {
+      console.error('❌ Error crítico al inicializar SimplexNoise:', error);
+      console.error('');
+      console.error('DIAGNÓSTICO:');
+      console.error('  - window existe:', typeof window !== 'undefined');
+      console.error('  - window.SimplexNoise existe:', typeof window !== 'undefined' && typeof window.SimplexNoise !== 'undefined');
+      console.error('  - SimplexNoise global existe:', typeof SimplexNoise !== 'undefined');
+      console.error('');
+      console.error('SOLUCIÓN:');
+      console.error('  1. Verifica que index.html carga: <script src="https://cdn.jsdelivr.net/npm/simplex-noise@3.0.1/simplex-noise.js"></script>');
+      console.error('  2. Verifica que el script se carga ANTES de main.js');
+      console.error('  3. Abre la consola del navegador y escribe: window.SimplexNoise');
+      console.error('     Debería mostrar un objeto o función, no "undefined"');
+      console.error('');
+      throw new Error('FALLÓ la inicialización de SimplexNoise. ' + error.message);
+    }
+  }
+  
+  // Usar el generador de ruido final (ya sea el proporcionado o el recién creado)
+  // Renombramos a noiseGen para evitar conflicto con el parámetro noiseGenerator
+  const noiseGen = finalNoiseGenerator;
   
   // Escala del ruido: controla qué tan suave o rugoso es el terreno
   // Valores más pequeños (ej: 0.1-0.2) = terreno más suave, cambios graduales
@@ -1040,7 +1114,7 @@ function createCells(biome) {
         // Bioma con función computeHeight personalizada (ej: Rock con forma de montaña)
         // Esta función puede retornar {height, heightNorm} o solo height
         const context = { gridRadius: GRID_RADIUS };
-        const result = biome.computeHeight(q, r, noiseGenerator, context);
+        const result = biome.computeHeight(q, r, noiseGen, context);
         
         if (typeof result === 'object' && result !== null) {
           // Si retorna un objeto, puede tener height y heightNorm
@@ -1056,7 +1130,7 @@ function createCells(biome) {
         // Hexágonos adyacentes tendrán alturas similares, creando un terreno natural
         // El ruido se evalúa en (q * noiseScale, r * noiseScale) y se mapea al rango del bioma
         const biomeNoiseScale = biome.heightNoiseScale !== undefined ? biome.heightNoiseScale : noiseScale;
-        height = generateHeight(q, r, biome, noiseGenerator, biomeNoiseScale);
+        height = generateHeight(q, r, biome, noiseGen, biomeNoiseScale);
       }
       
       // Calcular la posición (x, z) del centro del hexágono en el mundo
@@ -1078,7 +1152,7 @@ function createCells(biome) {
         candidateWater: false, // Por defecto, no es candidato a agua (se puede cambiar en computeColor)
         isWater: false, // Se decidirá después mediante detección de clusters
         waterHeight: null, // Altura específica para agua (se asignará en detectWaterClusters)
-        noiseGenerator: noiseGenerator // Pasamos el generador de ruido para que computeColor pueda usarlo (ej: Wheat)
+        noiseGenerator: noiseGen // Pasamos el generador de ruido para que computeColor pueda usarlo (ej: Wheat)
       };
       
       // Si heightNorm no se calculó arriba pero el bioma lo necesita, calcularlo ahora
@@ -1404,13 +1478,25 @@ function detectWaterClusters(cells, minClusterSize = 6) {
 function hexToPixel3D(q, r, size = HEX_RADIUS_WORLD) {
   const sqrt3 = Math.sqrt(3);
   
-  // FÓRMULA ESTÁNDAR PARA HEXÁGONOS "POINTY-TOP"
+  // FÓRMULA ESTÁNDAR PARA HEXÁGONOS "FLAT-TOP"
   // Esta fórmula garantiza un tesselado perfecto donde los hexágonos
-  // se tocan exactamente en sus bordes sin huecos ni superposición
+  // se tocan exactamente en sus LADOS (no en las puntas) sin huecos ni superposición
   // IMPORTANTE: size debe ser exactamente HEX_RADIUS_WORLD
-  const x = size * sqrt3 * (q + r / 2.0);
+  // 
+  // Para hexágonos flat-top con radio 'size' (centro a vértice):
+  // - Ancho (vértice a vértice) = 2 * size
+  // - Altura (borde plano a borde plano) = size * sqrt(3)
+  // - Apotema (centro a borde plano) = size * sqrt(3) / 2
+  //
+  // Espaciado entre centros (debe ser igual a la altura para tesselado perfecto):
+  // - Horizontal (misma fila): size * 1.5 = 3/4 del ancho
+  // - Vertical (filas adyacentes): size * sqrt(3) = altura del hexágono
+  //
+  // Esta fórmula garantiza que los LADOS de los hexágonos se toquen directamente,
+  // creando un mosaico perfecto donde cada lado está en contacto con otro lado.
+  const x = size * 1.5 * q;
   const y = 0.0; // Siempre en el plano XZ
-  const z = size * 1.5 * r;
+  const z = size * sqrt3 * (r + q / 2.0);
   
   return { x, y, z };
 }
@@ -2496,19 +2582,86 @@ async function main() {
     return;
   }
   
-  // Paso 3: Obtener el bioma activo (Grass o Forest)
-  // El bioma se selecciona usando la constante ACTIVE_BIOME
-  // getActiveBiome() retorna el bioma correspondiente (grassBiome o forestBiome)
-  const activeBiome = getActiveBiome();
-  console.log(`✓ Bioma activo: ${activeBiome.name || "Unknown"}`);
-
-  // Paso 4: Crear estructura de celdas usando los parámetros del bioma activo
-  // Cada celda tiene { q, r, height, color, biome, isWater, ... }
-  // - height: generado entre minHeight y maxHeight del bioma usando ruido
-  // - color: generado desde baseColor con variación colorVariance (función específica del bioma)
-  // - isWater: marcado por computeColor si la celda es agua (opcional, solo Forest por ahora)
-  // Genera un terreno hexagonal completo con radio GRID_RADIUS
-  const cells = createCells(activeBiome);
+  // Paso 3: Inicializar generador de ruido compartido (para modo board)
+  // En modo singleBiome, cada createCells crea su propio generador
+  // En modo board, todos los tiles comparten el mismo generador para coherencia
+  let sharedNoiseGenerator = null;
+  
+  // Crear generador de ruido compartido (reutiliza lógica de createCells)
+  try {
+    let noise2D = null;
+    let SimplexNoiseModule = null;
+    
+    if (typeof window !== 'undefined' && window.SimplexNoise) {
+      SimplexNoiseModule = window.SimplexNoise;
+    } else if (typeof SimplexNoise !== 'undefined') {
+      SimplexNoiseModule = SimplexNoise;
+    } else if (typeof window !== 'undefined' && typeof window.createNoise2D === 'function') {
+      noise2D = window.createNoise2D();
+    }
+    
+    if (SimplexNoiseModule && !noise2D) {
+      if (typeof SimplexNoiseModule.createNoise2D === 'function') {
+        noise2D = SimplexNoiseModule.createNoise2D();
+      } else if (typeof SimplexNoiseModule === 'function') {
+        const simplex = new SimplexNoiseModule();
+        noise2D = simplex.noise2D.bind(simplex);
+      }
+    }
+    
+    if (noise2D && typeof noise2D === 'function') {
+      sharedNoiseGenerator = { noise2D: noise2D };
+      console.log('✓ Generador de ruido compartido inicializado');
+    }
+  } catch (error) {
+    console.warn('⚠ No se pudo crear generador de ruido compartido, cada tile creará el suyo');
+  }
+  
+  // Paso 4: Seleccionar modo de visualización
+  let cells, treeInstances, sheepInstances, wheatInstances, activeBiome;
+  let board = null; // Solo se usa en modo board
+  
+  if (VIEW_MODE === "board") {
+    // MODO TABLERO: Crear múltiples tiles con diferentes biomas
+    console.log(`✓ Modo: Tablero (${BOARD_WIDTH}×${BOARD_HEIGHT} tiles)`);
+    
+    // Crear el tablero
+    board = createBoard(BOARD_WIDTH, BOARD_HEIGHT, sharedNoiseGenerator);
+    
+    // Generar todos los tiles del tablero
+    board.generate();
+    
+    // Obtener todas las celdas y objetos de todos los tiles
+    cells = board.getAllCells();
+    const allObjects = board.getAllObjectInstances();
+    treeInstances = allObjects.treeInstances;
+    sheepInstances = allObjects.sheepInstances;
+    wheatInstances = allObjects.wheatInstances;
+    
+    // Para el título, usar "Board" o el bioma más común
+    activeBiome = { name: "Board" };
+    
+    console.log(`✓ Tablero generado: ${cells.length} celdas totales, ${treeInstances.length} árboles, ${sheepInstances.length} ovejas, ${wheatInstances.length} trigo`);
+  } else {
+    // MODO BIOMA ÚNICO: Lógica existente (un solo tile)
+    console.log(`✓ Modo: Bioma Único`);
+    
+    activeBiome = getActiveBiome();
+    console.log(`✓ Bioma activo: ${activeBiome.name || "Unknown"}`);
+    
+    // Crear estructura de celdas usando los parámetros del bioma activo
+    // Cada celda tiene { q, r, height, color, biome, isWater, ... }
+    // - height: generado entre minHeight y maxHeight del bioma usando ruido
+    // - color: generado desde baseColor con variación colorVariance (función específica del bioma)
+    // - isWater: marcado por computeColor si la celda es agua (opcional, solo Forest por ahora)
+    // Genera un terreno hexagonal completo con radio GRID_RADIUS
+    cells = createCells(activeBiome, sharedNoiseGenerator);
+    
+    // Crear instancias de objetos (solo en modo singleBiome, en modo board ya están creadas)
+    treeInstances = createTreeInstances(cells, activeBiome);
+    wheatInstances = createWheatInstances(cells, activeBiome);
+    sheepInstances = createSheepInstances(cells, activeBiome);
+  }
   
   // Paso 5: Crear datos del prisma hexagonal base (altura = 1.0) con normales
   // IMPORTANTE: Usamos HEX_RADIUS_WORLD como única fuente de verdad para el tamaño del hexágono
@@ -2560,26 +2713,6 @@ async function main() {
     sheepMesh = null;
   }
   
-  // Paso 9: Crear instancias de árboles distribuidas sobre el terreno
-  // Solo las celdas del bioma activo pueden tener árboles
-  // La densidad está controlada por biome.treeDensity (cada bioma tiene su propia densidad)
-  // Las posiciones (x, z) se usan directamente de las celdas (ya calculadas)
-  // No se generan árboles en celdas de agua
-  const treeInstances = createTreeInstances(cells, activeBiome);
-  
-  // Paso 9b: Crear instancias de trigo distribuidas sobre el terreno
-  // Solo las celdas del bioma Wheat pueden tener trigo
-  // La densidad está controlada por biome.wheatDensity
-  // No se genera trigo en celdas de agua
-  const wheatInstances = createWheatInstances(cells, activeBiome);
-  
-  // Paso 10: Crear instancias de ovejas distribuidas sobre el terreno
-  // Solo las celdas del bioma activo pueden tener ovejas
-  // La densidad está controlada por biome.sheepDensity (cada bioma tiene su propia densidad)
-  // Las posiciones (x, z) se usan directamente de las celdas (ya calculadas)
-  // Cada oveja está perfectamente centrada en un hexágono usando cell.worldX y cell.worldZ
-  // No se generan ovejas en celdas de agua
-  const sheepInstances = createSheepInstances(cells, activeBiome);
   
   // Paso 11: Ajustar tamaño del canvas a pantalla completa
   // El canvas debe usar toda la ventana del navegador
@@ -2599,23 +2732,298 @@ async function main() {
     pageTitle.textContent = activeBiome.name || 'Bioma';
   }
   
-  // Actualizar el título visible en pantalla con el nombre del bioma
+  // Actualizar el título visible en pantalla
+  // IMPORTANTE: En Board Mode, NO mostrar ningún texto en pantalla (pantalla limpia)
   const biomeTitle = document.getElementById('biomeTitle');
   if (biomeTitle) {
-    biomeTitle.textContent = (activeBiome.name || 'Bioma') + ' Biome';
+    if (VIEW_MODE === "board") {
+      // En Board Mode: ocultar el título completamente
+      biomeTitle.style.display = 'none';
+    } else {
+      // En Single Biome: mostrar el título normalmente
+      biomeTitle.style.display = 'block';
+      biomeTitle.textContent = (activeBiome.name || 'Bioma') + ' Biome';
+    }
   }
   
   // Paso 12: Preparar matrices de vista y proyección (compartidas para terreno, árboles y ovejas)
   // Estas matrices se calculan una vez y se usan para todos los objetos
-  const terrainSize = GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3) * 2;
-  // Cámara más cerca del terreno (reducido de 1.2 a 0.85 para acercar la vista)
-  const cameraDistance = terrainSize * 0.85;
-  const eye = [cameraDistance * 0.7, cameraDistance * 0.8, cameraDistance * 0.7];
-  const center = [0, 0, 0];
-  const up = [0, 1, 0];
+  
+  // ============================================================
+  // CONFIGURACIÓN DE CÁMARA
+  // ============================================================
+  
+  let terrainSize;
+  let cameraEye, cameraCenter, cameraUp;
+  
+  if (VIEW_MODE === "board") {
+    // MODO BOARD: Cámara para explorar el tablero completo
+    // Calcular tamaño del tablero usando el mismo sistema que board.js
+    // board.getBoardSize() retorna { width, height } basado en el radio hexagonal
+    const boardSize = board ? board.getBoardSize() : { 
+      // Fallback: calcular tamaño aproximado del tablero hexagonal 5×5 (radio 2)
+      width: 2 * 2 * GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3) * 2,
+      height: 2 * 2 * GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3) * 2
+    };
+    terrainSize = Math.max(boardSize.width, boardSize.height) + GRID_RADIUS * HEX_RADIUS_WORLD * 2;
+    
+    // Posición inicial de la cámara: más alta y más alejada para ver todo el tablero
+    const cameraDistance = terrainSize * 1.2; // Más alejada que en single biome
+    cameraEye = [cameraDistance * 0.6, cameraDistance * 1.0, cameraDistance * 0.6];
+    cameraCenter = [0, 0, 0]; // Centro del tablero
+    cameraUp = [0, 1, 0];
+  } else {
+    // MODO SINGLE BIOME: Cámara fija como antes (sin cambios)
+    terrainSize = GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3) * 2;
+    const cameraDistance = terrainSize * 0.85;
+    cameraEye = [cameraDistance * 0.7, cameraDistance * 0.8, cameraDistance * 0.7];
+    cameraCenter = [0, 0, 0];
+    cameraUp = [0, 1, 0];
+  }
+  
+  // Estado de la cámara para Board Mode (se actualiza con controles)
+  let currentCameraEye = [...cameraEye];
+  let currentCameraCenter = [...cameraCenter];
+  
   const aspect = webgl.canvas.width / webgl.canvas.height;
-  const viewMatrix = lookAt(eye, center, up);
+  let viewMatrix = lookAt(currentCameraEye, currentCameraCenter, cameraUp);
   let projectionMatrix = perspective(60, aspect, 0.1, 100.0);
+  
+  // ============================================================
+  // CONTROLES DE CÁMARA PARA BOARD MODE
+  // ============================================================
+  // En Board Mode, permite mover la cámara con teclado para explorar el tablero
+  // 
+  // CONTROLES:
+  // - W / Flecha Arriba: Mover cámara hacia adelante (en dirección de visión)
+  // - S / Flecha Abajo: Mover cámara hacia atrás
+  // - A / Flecha Izquierda: Mover cámara hacia la izquierda
+  // - D / Flecha Derecha: Mover cámara hacia la derecha
+  // - Q: Mover cámara hacia arriba (elevar)
+  // - E: Mover cámara hacia abajo (bajar)
+  // - R: Resetear posición de cámara a la inicial
+  // 
+  // VELOCIDAD: Se puede ajustar cambiando CAMERA_MOVE_SPEED
+  // SENSIBILIDAD: Se puede ajustar cambiando CAMERA_ROTATE_SPEED (si se agrega rotación)
+  
+  if (VIEW_MODE === "board") {
+    // ============================================================
+    // CONFIGURACIÓN DE CONTROLES DE CÁMARA PARA BOARD MODE
+    // ============================================================
+    // 
+    // CONTROLES DE MOVIMIENTO:
+    // - W / Flecha Arriba: Mover cámara hacia adelante (en dirección de visión)
+    // - S / Flecha Abajo: Mover cámara hacia atrás
+    // - A / Flecha Izquierda: Mover cámara hacia la izquierda
+    // - D / Flecha Derecha: Mover cámara hacia la derecha
+    // - Q: Mover cámara hacia arriba (elevar)
+    // - E: Mover cámara hacia abajo (bajar)
+    // - R: Resetear posición de cámara a la inicial
+    // 
+    // CONTROLES DE ZOOM:
+    // - Rueda del mouse hacia arriba: Acercar (zoom in)
+    // - Rueda del mouse hacia abajo: Alejar (zoom out)
+    // - Teclas + / -: Alternativa para zoom in/out
+    // 
+    // PARÁMETROS AJUSTABLES:
+    // - CAMERA_MOVE_SPEED: Velocidad de movimiento en X/Z/Y (unidades por frame)
+    // - CAMERA_ZOOM_SPEED: Velocidad de zoom (factor de multiplicación/división)
+    // - CAMERA_ZOOM_MIN: Distancia mínima al centro (no se puede acercar más)
+    // - CAMERA_ZOOM_MAX: Distancia máxima al centro (no se puede alejar más)
+    
+    const CAMERA_MOVE_SPEED = 0.5; // Velocidad de movimiento (unidades por frame)
+    const CAMERA_ZOOM_SPEED = 0.1; // Velocidad de zoom (10% por paso de rueda)
+    const CAMERA_ZOOM_MIN = 2.0;   // Distancia mínima al centro (muy cerca)
+    const CAMERA_ZOOM_MAX = 200.0; // Distancia máxima al centro (muy lejos)
+    
+    const keysPressed = {}; // Estado de teclas presionadas
+    
+    // Detectar teclas presionadas
+    window.addEventListener('keydown', (e) => {
+      keysPressed[e.key.toLowerCase()] = true;
+      keysPressed[e.code] = true; // Para Arrow keys
+      // Prevenir scroll cuando se presionan teclas de zoom
+      if (e.key === '+' || e.key === '-' || e.key === '=') {
+        e.preventDefault();
+      }
+    });
+    
+    window.addEventListener('keyup', (e) => {
+      keysPressed[e.key.toLowerCase()] = false;
+      keysPressed[e.code] = false;
+    });
+    
+    // Detectar rueda del mouse para zoom
+    webgl.canvas.addEventListener('wheel', (e) => {
+      e.preventDefault(); // Prevenir scroll de página
+      
+      // Calcular dirección de vista (de eye hacia center)
+      const viewDir = [
+        currentCameraCenter[0] - currentCameraEye[0],
+        currentCameraCenter[1] - currentCameraEye[1],
+        currentCameraCenter[2] - currentCameraEye[2]
+      ];
+      
+      // Calcular distancia actual
+      const currentDistance = Math.sqrt(
+        viewDir[0] * viewDir[0] + 
+        viewDir[1] * viewDir[1] + 
+        viewDir[2] * viewDir[2]
+      );
+      
+      // Normalizar dirección
+      const viewDirNorm = [
+        viewDir[0] / currentDistance,
+        viewDir[1] / currentDistance,
+        viewDir[2] / currentDistance
+      ];
+      
+      // Calcular nueva distancia según scroll
+      // deltaY > 0 = scroll hacia abajo = alejar
+      // deltaY < 0 = scroll hacia arriba = acercar
+      let newDistance = currentDistance;
+      if (e.deltaY > 0) {
+        // Alejar: aumentar distancia
+        newDistance = currentDistance * (1.0 + CAMERA_ZOOM_SPEED);
+      } else {
+        // Acercar: disminuir distancia
+        newDistance = currentDistance * (1.0 - CAMERA_ZOOM_SPEED);
+      }
+      
+      // Limitar distancia a los rangos permitidos
+      newDistance = Math.max(CAMERA_ZOOM_MIN, Math.min(CAMERA_ZOOM_MAX, newDistance));
+      
+      // Mover eye hacia/desde center manteniendo center fijo
+      currentCameraEye[0] = currentCameraCenter[0] - viewDirNorm[0] * newDistance;
+      currentCameraEye[1] = currentCameraCenter[1] - viewDirNorm[1] * newDistance;
+      currentCameraEye[2] = currentCameraCenter[2] - viewDirNorm[2] * newDistance;
+      
+      // Actualizar vista y renderizar
+      viewMatrix = lookAt(currentCameraEye, currentCameraCenter, cameraUp);
+      renderScene();
+    }, { passive: false }); // passive: false para poder prevenir default
+    
+    // Función para actualizar la cámara según las teclas presionadas
+    function updateCamera() {
+      let moved = false;
+      const forward = [currentCameraCenter[0] - currentCameraEye[0], 0, currentCameraCenter[2] - currentCameraEye[2]];
+      const forwardLength = Math.sqrt(forward[0] * forward[0] + forward[2] * forward[2]);
+      if (forwardLength > 0.001) {
+        forward[0] /= forwardLength;
+        forward[2] /= forwardLength;
+      }
+      
+      // Calcular dirección derecha (perpendicular a forward)
+      const right = [-forward[2], 0, forward[0]];
+      
+      // Movimiento hacia adelante/atrás
+      if (keysPressed['w'] || keysPressed['arrowup']) {
+        currentCameraEye[0] += forward[0] * CAMERA_MOVE_SPEED;
+        currentCameraEye[2] += forward[2] * CAMERA_MOVE_SPEED;
+        currentCameraCenter[0] += forward[0] * CAMERA_MOVE_SPEED;
+        currentCameraCenter[2] += forward[2] * CAMERA_MOVE_SPEED;
+        moved = true;
+      }
+      if (keysPressed['s'] || keysPressed['arrowdown']) {
+        currentCameraEye[0] -= forward[0] * CAMERA_MOVE_SPEED;
+        currentCameraEye[2] -= forward[2] * CAMERA_MOVE_SPEED;
+        currentCameraCenter[0] -= forward[0] * CAMERA_MOVE_SPEED;
+        currentCameraCenter[2] -= forward[2] * CAMERA_MOVE_SPEED;
+        moved = true;
+      }
+      
+      // Movimiento lateral
+      if (keysPressed['a'] || keysPressed['arrowleft']) {
+        currentCameraEye[0] -= right[0] * CAMERA_MOVE_SPEED;
+        currentCameraEye[2] -= right[2] * CAMERA_MOVE_SPEED;
+        currentCameraCenter[0] -= right[0] * CAMERA_MOVE_SPEED;
+        currentCameraCenter[2] -= right[2] * CAMERA_MOVE_SPEED;
+        moved = true;
+      }
+      if (keysPressed['d'] || keysPressed['arrowright']) {
+        currentCameraEye[0] += right[0] * CAMERA_MOVE_SPEED;
+        currentCameraEye[2] += right[2] * CAMERA_MOVE_SPEED;
+        currentCameraCenter[0] += right[0] * CAMERA_MOVE_SPEED;
+        currentCameraCenter[2] += right[2] * CAMERA_MOVE_SPEED;
+        moved = true;
+      }
+      
+      // Movimiento vertical
+      if (keysPressed['q']) {
+        currentCameraEye[1] += CAMERA_MOVE_SPEED;
+        currentCameraCenter[1] += CAMERA_MOVE_SPEED;
+        moved = true;
+      }
+      if (keysPressed['e']) {
+        currentCameraEye[1] -= CAMERA_MOVE_SPEED;
+        currentCameraCenter[1] -= CAMERA_MOVE_SPEED;
+        moved = true;
+      }
+      
+      // Zoom con teclado (+ / -)
+      if (keysPressed['+'] || keysPressed['=']) {
+        // Acercar: disminuir distancia
+        const viewDir = [
+          currentCameraCenter[0] - currentCameraEye[0],
+          currentCameraCenter[1] - currentCameraEye[1],
+          currentCameraCenter[2] - currentCameraEye[2]
+        ];
+        const currentDistance = Math.sqrt(viewDir[0] * viewDir[0] + viewDir[1] * viewDir[1] + viewDir[2] * viewDir[2]);
+        const viewDirNorm = [
+          viewDir[0] / currentDistance,
+          viewDir[1] / currentDistance,
+          viewDir[2] / currentDistance
+        ];
+        const newDistance = Math.max(CAMERA_ZOOM_MIN, currentDistance * (1.0 - CAMERA_ZOOM_SPEED));
+        currentCameraEye[0] = currentCameraCenter[0] - viewDirNorm[0] * newDistance;
+        currentCameraEye[1] = currentCameraCenter[1] - viewDirNorm[1] * newDistance;
+        currentCameraEye[2] = currentCameraCenter[2] - viewDirNorm[2] * newDistance;
+        moved = true;
+      }
+      if (keysPressed['-'] || keysPressed['_']) {
+        // Alejar: aumentar distancia
+        const viewDir = [
+          currentCameraCenter[0] - currentCameraEye[0],
+          currentCameraCenter[1] - currentCameraEye[1],
+          currentCameraCenter[2] - currentCameraEye[2]
+        ];
+        const currentDistance = Math.sqrt(viewDir[0] * viewDir[0] + viewDir[1] * viewDir[1] + viewDir[2] * viewDir[2]);
+        const viewDirNorm = [
+          viewDir[0] / currentDistance,
+          viewDir[1] / currentDistance,
+          viewDir[2] / currentDistance
+        ];
+        const newDistance = Math.min(CAMERA_ZOOM_MAX, currentDistance * (1.0 + CAMERA_ZOOM_SPEED));
+        currentCameraEye[0] = currentCameraCenter[0] - viewDirNorm[0] * newDistance;
+        currentCameraEye[1] = currentCameraCenter[1] - viewDirNorm[1] * newDistance;
+        currentCameraEye[2] = currentCameraCenter[2] - viewDirNorm[2] * newDistance;
+        moved = true;
+      }
+      
+      // Resetear cámara
+      if (keysPressed['r']) {
+        currentCameraEye = [...cameraEye];
+        currentCameraCenter = [...cameraCenter];
+        moved = true;
+        keysPressed['r'] = false; // Evitar reset continuo
+      }
+      
+      if (moved) {
+        viewMatrix = lookAt(currentCameraEye, currentCameraCenter, cameraUp);
+        renderScene();
+      }
+    }
+    
+    // Actualizar cámara cada frame (usando requestAnimationFrame)
+    function cameraUpdateLoop() {
+      updateCamera();
+      requestAnimationFrame(cameraUpdateLoop);
+    }
+    cameraUpdateLoop();
+    
+    console.log('✓ Controles de cámara activados para Board Mode');
+    console.log('  W/S/Arrows: Mover | Q/E: Elevar/Bajar | Rueda mouse/+/−: Zoom | R: Reset');
+  }
   
   // Función para redibujar la escena (se llama cuando cambia el tamaño de la ventana)
   function renderScene() {
@@ -2623,11 +3031,18 @@ async function main() {
     projectionMatrix = resizeCanvas();
     
     // Redibujar toda la escena
-    drawHexGrid(gl, program, positionBuffer, normalBuffer, webgl.canvas, cells, HEX_RADIUS_WORLD, viewMatrix, projectionMatrix, eye);
+    // En Board Mode, usar currentCameraEye; en Single Biome, usar eye original
+    const cameraPosForShader = VIEW_MODE === "board" ? currentCameraEye : currentCameraEye;
+    drawHexGrid(gl, program, positionBuffer, normalBuffer, webgl.canvas, cells, HEX_RADIUS_WORLD, viewMatrix, projectionMatrix, cameraPosForShader);
     
     // Dibujar árboles
     if (treeInstances.length > 0) {
-      const treeCrownColor = activeBiome.name === "Forest" ? TREE_CROWN_COLOR_FOREST : TREE_CROWN_COLOR_GRASS;
+      // En Board Mode, los árboles pueden pertenecer a diferentes biomas
+      // Usamos un color por defecto (Grass) ya que es el más común
+      // En Single Biome, usamos el color del bioma activo
+      const treeCrownColor = (VIEW_MODE === "board" || activeBiome.name === "Forest") ? 
+        (activeBiome.name === "Forest" ? TREE_CROWN_COLOR_FOREST : TREE_CROWN_COLOR_GRASS) : 
+        TREE_CROWN_COLOR_GRASS;
       for (const tree of treeInstances) {
         drawTreeWithColor(gl, program, treeMesh, tree.modelMatrix, viewMatrix, projectionMatrix, treeCrownColor);
       }
