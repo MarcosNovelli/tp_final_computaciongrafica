@@ -73,12 +73,12 @@ const GRID_RADIUS = 8;
  * NOTA: Este valor determina TODO el terreno. Para mezclar biomas (islas de biomas diferentes),
  * necesitarías una lógica más compleja que está fuera del alcance de este paso.
  */
-const ACTIVE_BIOME = "Rock"; // Cambiar entre "Grass", "Forest", "Rock" y "Clay"
+const ACTIVE_BIOME = "Wheat"; // Cambiar entre "Grass", "Forest", "Rock", "Clay" y "Wheat"
 
 /**
  * Obtiene el bioma activo actual basado en la constante ACTIVE_BIOME.
  * 
- * @returns {Object} Objeto bioma (grassBiome, forestBiome, rockBiome o clayBiome)
+ * @returns {Object} Objeto bioma (grassBiome, forestBiome, rockBiome, clayBiome o wheatBiome)
  */
 function getActiveBiome() {
   switch (ACTIVE_BIOME) {
@@ -88,6 +88,8 @@ function getActiveBiome() {
       return rockBiome;
     case "Clay":
       return clayBiome;
+    case "Wheat":
+      return wheatBiome;
     default:
       return grassBiome; // Por defecto, usa Grass
   }
@@ -375,6 +377,7 @@ const fragmentShaderSource = `
   
   uniform vec3 u_color;           // Color RGB del hexágono (pasado desde la aplicación)
   uniform float uIsWater;          // Bandera: 1.0 si es agua, 0.0 si es terreno
+  uniform float uNoLighting;       // Bandera: 1.0 si no se debe aplicar iluminación (color directo)
   uniform vec3 uCameraPosition;    // Posición de la cámara en espacio del mundo
   
   varying vec3 v_normal;           // Normal transformada (interpolada entre vértices)
@@ -1074,7 +1077,8 @@ function createCells(biome) {
         biome: biome,  // Guardar referencia al bioma para filtrado
         candidateWater: false, // Por defecto, no es candidato a agua (se puede cambiar en computeColor)
         isWater: false, // Se decidirá después mediante detección de clusters
-        waterHeight: null // Altura específica para agua (se asignará en detectWaterClusters)
+        waterHeight: null, // Altura específica para agua (se asignará en detectWaterClusters)
+        noiseGenerator: noiseGenerator // Pasamos el generador de ruido para que computeColor pueda usarlo (ej: Wheat)
       };
       
       // Si heightNorm no se calculó arriba pero el bioma lo necesita, calcularlo ahora
@@ -1142,14 +1146,20 @@ function createCells(biome) {
   // Después de crear todas las celdas, detectar clusters de agua conectados
   // Solo los clusters grandes (≥6 celdas) se marcan como agua
   // Esto evita que aparezcan "pozos random" individuales
-  if (biome.name === "Forest" || biome.name === "Clay") {
-    const MIN_WATER_CLUSTER = 6; // Tamaño mínimo del cluster para ser considerado agua
+  if (biome.name === "Forest" || biome.name === "Clay" || biome.name === "Wheat") {
+    // Para Wheat, usar un tamaño mínimo más pequeño ya que el terreno es más plano
+    // y puede haber menos clusters grandes
+    const MIN_WATER_CLUSTER = biome.name === "Wheat" ? 4 : 6; // 4 para Wheat, 6 para otros
     detectWaterClusters(cells, MIN_WATER_CLUSTER);
     
     // Aplicar altura y color de agua a las celdas marcadas como agua
     for (const cell of cells) {
-      if (cell.isWater && cell.waterHeight !== null) {
-        cell.height = cell.waterHeight; // Altura plana para el agua
+      if (cell.isWater) {
+        if (cell.waterHeight !== null) {
+          cell.height = cell.waterHeight; // Altura plana para el agua
+        }
+        // Asegurar que el color de agua esté aplicado
+        cell.color = [0.35, 0.45, 0.75]; // Color de agua azul claro
       }
     }
   }
@@ -1883,6 +1893,7 @@ function drawMesh(gl, program, positionBuffer, normalBuffer, indexBuffer, indexC
   const normalMatrixLocation = gl.getUniformLocation(program, 'u_normalMatrix');
   const colorLocation = gl.getUniformLocation(program, 'u_color');
   const isWaterLocation = gl.getUniformLocation(program, 'uIsWater');
+  const noLightingLocation = gl.getUniformLocation(program, 'uNoLighting');
   
   // Configura las matrices en el shader
   gl.uniformMatrix4fv(modelLocation, false, modelMatrix);
@@ -1896,6 +1907,12 @@ function drawMesh(gl, program, positionBuffer, normalBuffer, indexBuffer, indexC
   // IMPORTANTE: Establecer uIsWater = 0.0 para objetos que NO son agua
   // Esto asegura que árboles, ovejas y terreno normal no reciban el efecto de agua
   gl.uniform1f(isWaterLocation, 0.0);
+  
+  // IMPORTANTE: Establecer uNoLighting = 0.0 por defecto (iluminación activa)
+  // Se puede cambiar a 1.0 para objetos que no deben tener iluminación (ej: trigo)
+  if (noLightingLocation) {
+    gl.uniform1f(noLightingLocation, 0.0);
+  }
   
   // Configura el atributo a_position para leer del buffer de posiciones
   setupAttribute(gl, program, 'a_position', positionBuffer, 3);
@@ -2015,6 +2032,11 @@ function createTreeInstances(cells, targetBiome = null) {
     // Esto evita generar árboles fuera del bioma o en biomas incorrectos
     if (cell.biome !== targetBiome) {
       continue; // Saltar celdas que no pertenecen al bioma objetivo
+    }
+    
+    // FILTRAR ESPECIAL: No generar árboles en el bioma Wheat
+    if (cell.biome.name === "Wheat") {
+      continue; // No hay árboles en campos de trigo
     }
     
     // FILTRAR: Saltar celdas de agua (no hay árboles en el agua)
@@ -2182,6 +2204,103 @@ function createTreeInstances(cells, targetBiome = null) {
   console.log(`✓ ${treeInstances.length} árboles instanciados sobre ${biomeCellsCount} celdas de ${biomeName} (de ${cells.length} totales, densidad: ${(treeDensity * 100).toFixed(1)}%)`);
 
   return treeInstances;
+}
+
+/**
+ * Crea instancias de trigo distribuidas aleatoriamente sobre las celdas del bioma Wheat.
+ * 
+ * RESPONSABILIDAD:
+ * - Generar instancias de plantas de trigo (palitos/rectángulos) sobre celdas del bioma Wheat
+ * - Filtrar por bioma y excluir celdas de agua
+ * - Retornar un array de instancias con sus matrices modelo
+ * 
+ * FILTRADO POR BIOMA:
+ * - Solo genera trigo en celdas que pertenecen al bioma Wheat
+ * - No se genera trigo en celdas de agua
+ * 
+ * POSICIONAMIENTO:
+ * - Cada planta de trigo está perfectamente centrada en un hexágono
+ * - La posición (x, z) se usa directamente desde cell.worldX y cell.worldZ
+ * - La altura en Y se calcula como la altura visual del hexágono (top del hex)
+ * - El trigo tiene su base en y=0 (en su sistema local)
+ * - Se traslada a y = visualHeight para que la base quede sobre la tapa del hexágono
+ * 
+ * @param {Array} cells - Array de celdas con formato { q, r, worldX, worldZ, height, color, biome }
+ * @param {Object} targetBiome - Bioma objetivo para generar trigo (por defecto wheatBiome)
+ * @returns {Array<{modelMatrix: Float32Array}>} Array de instancias de trigo
+ */
+function createWheatInstances(cells, targetBiome = null) {
+  // Si no se especifica un bioma, usar el bioma activo
+  if (!targetBiome) {
+    targetBiome = getActiveBiome();
+  }
+  
+  const wheatInstances = [];
+  let biomeCellsCount = 0;
+  
+  // Obtener la densidad de trigo del bioma
+  const wheatDensity = targetBiome.wheatDensity !== undefined ? targetBiome.wheatDensity : 0.85;
+  
+  // Recorrer todas las celdas del terreno
+  for (const cell of cells) {
+    // FILTRAR: Solo generar trigo en celdas del bioma Wheat
+    if (cell.biome !== targetBiome || cell.biome.name !== "Wheat") {
+      continue;
+    }
+    
+    // FILTRAR: Saltar celdas de agua (no hay trigo en el agua)
+    if (cell.isWater) {
+      continue;
+    }
+    
+    biomeCellsCount++;
+    
+    // Decidir aleatoriamente si esta celda debe tener trigo
+    if (Math.random() >= wheatDensity) {
+      continue;
+    }
+    
+    // MARCADO DE CELDA OCUPADA: Marcar esta celda como ocupada por trigo
+    cell.occupied = true;
+    
+    // Posición: usar EXACTAMENTE los mismos datos que usan los hexágonos
+    const HEX_BASE_HEIGHT = 0.5;
+    const posX = cell.worldX;
+    const posZ = cell.worldZ;
+    const visualHeight = cell.height * HEIGHT_UNIT;
+    const actualHexHeight = HEX_BASE_HEIGHT * visualHeight;
+    const posY = actualHexHeight; // Trigo sobre la tapa del hexágono
+    
+    // Validar que la altura sea válida
+    if (posY <= 0) {
+      continue;
+    }
+    
+    // Sin rotación ni escala (el trigo es un conjunto de palitos, no necesita variación)
+    const rotationY = 0;
+    const scale = 1.0;
+    
+    // Construir matriz modelo (igual que árboles)
+    const scaleMatrix = scaleMat4(scale, scale, scale);
+    const cosR = Math.cos(rotationY);
+    const sinR = Math.sin(rotationY);
+    const rotationMatrix = new Float32Array([
+      cosR, 0, sinR, 0,
+      0, 1, 0, 0,
+      -sinR, 0, cosR, 0,
+      0, 0, 0, 1
+    ]);
+    const localTransform = multiplyMat4(rotationMatrix, scaleMatrix);
+    const translationMatrix = translateMat4(posX, posY, posZ);
+    const modelMatrix = multiplyMat4(translationMatrix, localTransform);
+    
+    wheatInstances.push({ modelMatrix: modelMatrix });
+  }
+  
+  const biomeName = targetBiome.name || "Unknown";
+  console.log(`✓ ${wheatInstances.length} plantas de trigo instanciadas sobre ${biomeCellsCount} celdas de ${biomeName} (densidad: ${(wheatDensity * 100).toFixed(1)}%)`);
+  
+  return wheatInstances;
 }
 
 /**
@@ -2412,6 +2531,11 @@ async function main() {
   // Está compuesto por un tronco hexagonal y una copa de 3 conos apilados
   const treeMesh = createTreeMesh(gl);
   
+  // Paso 7b: Crear mesh de trigo programáticamente
+  // El trigo se genera en código (sin modelos externos)
+  // Está compuesto por múltiples palitos/rectángulos de diferentes alturas
+  const wheatMesh = createWheatMesh(gl, HEX_RADIUS_WORLD, 60); // 60 palitos por hexágono (muy denso, como imagen)
+  
   // Paso 8: Cargar modelo OBJ de oveja con su material MTL
   // El modelo se carga desde objects/sheep.obj y objects/sheep.mtl
   // loadObjWithMtl parsea el OBJ separado por materiales (White=lana, Black=cabeza/patas)
@@ -2442,6 +2566,12 @@ async function main() {
   // Las posiciones (x, z) se usan directamente de las celdas (ya calculadas)
   // No se generan árboles en celdas de agua
   const treeInstances = createTreeInstances(cells, activeBiome);
+  
+  // Paso 9b: Crear instancias de trigo distribuidas sobre el terreno
+  // Solo las celdas del bioma Wheat pueden tener trigo
+  // La densidad está controlada por biome.wheatDensity
+  // No se genera trigo en celdas de agua
+  const wheatInstances = createWheatInstances(cells, activeBiome);
   
   // Paso 10: Crear instancias de ovejas distribuidas sobre el terreno
   // Solo las celdas del bioma activo pueden tener ovejas
@@ -2500,6 +2630,41 @@ async function main() {
       const treeCrownColor = activeBiome.name === "Forest" ? TREE_CROWN_COLOR_FOREST : TREE_CROWN_COLOR_GRASS;
       for (const tree of treeInstances) {
         drawTreeWithColor(gl, program, treeMesh, tree.modelMatrix, viewMatrix, projectionMatrix, treeCrownColor);
+      }
+    }
+    
+    // Dibujar trigo (bioma Wheat)
+    if (wheatMesh && wheatInstances.length > 0) {
+      // Color uniforme para todos los palitos de trigo (amarillo dorado brillante, como imagen)
+      // Todos los palitos de todas las instancias usan exactamente el mismo color
+      const WHEAT_COLOR = [0.95, 0.82, 0.22]; // Amarillo/dorado brillante uniforme (más dorado, como imagen)
+      
+      // Configurar uniform para desactivar iluminación en el trigo
+      // Esto hace que todos los palitos tengan exactamente el mismo color sin variación
+      const noLightingLocation = gl.getUniformLocation(program, 'uNoLighting');
+      if (noLightingLocation) {
+        gl.uniform1f(noLightingLocation, 1.0); // Desactivar iluminación para trigo
+      }
+      
+      for (const wheat of wheatInstances) {
+        // El trigo se dibuja como un mesh simple con un solo color uniforme
+        // Todos los palitos tienen exactamente el mismo color (sin variación por iluminación)
+        drawMesh(
+          gl, program,
+          wheatMesh.positionBuffer,
+          wheatMesh.normalBuffer,
+          wheatMesh.indexBuffer,
+          wheatMesh.indexCount,
+          wheat.modelMatrix,
+          viewMatrix,
+          projectionMatrix,
+          WHEAT_COLOR // Color fijo e idéntico para todas las instancias y todos los palitos
+        );
+      }
+      
+      // Restaurar iluminación para otros objetos
+      if (noLightingLocation) {
+        gl.uniform1f(noLightingLocation, 0.0);
       }
     }
     

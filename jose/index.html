@@ -65,19 +65,22 @@
   <script src="render/gl.js"></script>
   <!-- Cargar loader de modelos OBJ/MTL -->
   <script src="loader/simpleObjMtlLoader.js?v=8"></script>
-  <!-- Cargar módulo para generar árboles low-poly programáticamente -->
-  <script src="objects/tree.js"></script>
-  <!-- Cargar main.js primero para tener funciones auxiliares (randomInRange, clamp01, generateColor) -->
+         <!-- Cargar módulo para generar árboles low-poly programáticamente -->
+         <script src="objects/tree.js"></script>
+         <!-- Cargar módulo para generar plantas de trigo low-poly programáticamente -->
+         <script src="objects/wheat.js"></script>
+         <!-- Cargar main.js primero para tener funciones auxiliares (randomInRange, clamp01, generateColor) -->
   <!-- main.js define las funciones pero NO ejecuta main() hasta que todos los scripts estén cargados -->
   <script src="main.js?v=2"></script>
   <!-- Cargar biomas (en orden: primero Grass, luego otros) -->
   <!-- Estos archivos definen los biomas globalmente y dependen de las funciones auxiliares de main.js -->
   <script src="biomes/grassBiome.js"></script>
   <script src="biomes/forestBiome.js"></script>
-  <script src="biomes/rockBiome.js"></script>
-  <script src="biomes/clayBiome.js"></script>
-  <script src="biomes/desertBiome.js"></script>
-  <!-- main() se ejecuta automáticamente cuando el DOM está listo, después de cargar todos los scripts -->
+         <script src="biomes/rockBiome.js"></script>
+         <script src="biomes/clayBiome.js"></script>
+         <script src="biomes/desertBiome.js"></script>
+         <script src="biomes/wheatBiome.js"></script>
+         <!-- main() se ejecuta automáticamente cuando el DOM está listo, después de cargar todos los scripts -->
 </body>
 </html>
 
