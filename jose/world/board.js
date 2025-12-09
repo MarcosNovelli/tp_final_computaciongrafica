@@ -5,28 +5,31 @@
  * 
  * RESPONSABILIDAD:
  * Este archivo define la abstracción "Board" (tablero de tiles).
- * Un Board maneja múltiples tiles organizados en una grilla hexagonal tipo Catan.
+ * Un Board maneja múltiples tiles con posicionamiento MANUAL.
  * 
  * Un Board:
- * - Crea y organiza múltiples tiles en una grilla hexagonal (boardRadius)
- * - Asigna un bioma a cada tile (aleatorio uniforme, cambia en cada recarga)
- * - Calcula las posiciones (offsets) de cada tile usando coordenadas hexagonales
+ * - Crea y organiza múltiples tiles según configuraciones manuales
+ * - Cada tile se define por su posición (x, z) del centroide
+ * - Puede asignar biomas manualmente o aleatoriamente
  * - Genera todos los tiles con variación individual (cada tile del mismo bioma es diferente)
  * - Proporciona acceso a todas las celdas y objetos de todos los tiles
  * 
- * LAYOUT TIPO CATAN:
- * Los tiles se organizan como hexágonos grandes en una grilla hexagonal.
- * Cada tile tiene coordenadas hexagonales (qTile, rTile) y se posiciona usando
- * la misma lógica que se usa para posicionar hexágonos pequeños dentro de un tile.
- * Los hexágonos están en orientación FLAT-TOP (lados planos horizontales), lo que
- * garantiza que los LADOS de los tiles se toquen directamente, creando un mosaico
- * perfecto sin huecos, como las losetas de Catan.
+ * POSICIONAMIENTO MANUAL:
+ * El usuario define explícitamente dónde está cada tile especificando
+ * la posición (x, z) de su centro. No hay fórmulas automáticas ni coordenadas hexagonales.
+ * 
+ * FORMATO DE CONFIGURACIÓN DE TILES:
+ * tilesConfig = [
+ *   { x: 0, z: 0, biome: "Grass" },  // Tile en el origen con bioma Grass
+ *   { x: 50, z: 0 },                  // Tile en (50, 0) con bioma aleatorio
+ *   { x: 0, z: 50, biome: "Forest" }  // Tile en (0, 50) con bioma Forest
+ * ]
  * 
  * DEPENDENCIAS:
  * - Requiere que createTile() esté disponible (definida en world/tile.js)
- * - Requiere que hexToPixel3D() esté disponible (definida en main.js)
- * - Requiere que getActiveBiome() y todos los biomas estén disponibles (definidos en main.js)
- * - Requiere que GRID_RADIUS y HEX_RADIUS_WORLD estén disponibles (definidos en main.js)
+ * - Requiere que getAvailableBiomes() esté disponible (definida en este archivo)
+ * - Requiere que todos los biomas estén disponibles (definidos en main.js)
+ * - Requiere que GRID_RADIUS esté disponible (definido en main.js)
  */
 
 /**
@@ -46,147 +49,69 @@ function getAvailableBiomes() {
   return biomes;
 }
 
-/**
- * Calcula la distancia hexagonal entre dos coordenadas axiales.
- * 
- * @param {number} q1 - Coordenada q del primer hexágono
- * @param {number} r1 - Coordenada r del primer hexágono
- * @param {number} q2 - Coordenada q del segundo hexágono
- * @param {number} r2 - Coordenada r del segundo hexágono
- * @returns {number} Distancia hexagonal
- */
-function hexDistance(q1, r1, q2, r2) {
-  return (Math.abs(q1 - q2) + Math.abs(q1 + r1 - q2 - r2) + Math.abs(r1 - r2)) / 2;
-}
+// Función hexDistance eliminada - ya no se usa con posicionamiento manual
 
 /**
- * Crea un nuevo Board (tablero de tiles).
+ * Crea un nuevo Board (tablero de tiles) con posicionamiento manual.
  * 
- * Un Board organiza múltiples tiles en una grilla hexagonal tipo Catan.
- * Cada tile es un "hexágono grande" (una grilla hexagonal completa) con su propio bioma.
+ * Un Board organiza múltiples tiles según las posiciones que el usuario define manualmente.
+ * Cada tile se posiciona por su centroide (x, z) especificado en la configuración.
  * 
- * TAMAÑO 5×5:
- * El tablero genera exactamente 25 tiles organizados en una grilla hexagonal.
- * Para un tablero 5×5, usamos un radio hexagonal de 2 desde el centro (0, 0),
- * lo que genera aproximadamente 25 tiles (1 centro + 6 en radio 1 + 18 en radio 2).
- * 
- * @param {number} boardWidth - Número de tiles en el eje X (columnas) - debe ser 5
- * @param {number} boardHeight - Número de tiles en el eje Y (filas) - debe ser 5
+ * @param {Array} tilesConfig - Array de configuraciones de tiles. Cada elemento debe tener:
+ *   - x: Posición X del centro del tile (requerido)
+ *   - z: Posición Z del centro del tile (requerido)
+ *   - biome: Nombre del bioma (opcional, si no se especifica se asigna aleatoriamente)
+ *   - id: Identificador único del tile (opcional, para referencia)
+ *   Ejemplo: [{ x: 0, z: 0, biome: "Grass" }, { x: 50, z: 0 }]
  * @param {Object} baseNoiseGenerator - Generador de ruido Simplex base (opcional)
  * @returns {Object} Objeto Board con métodos generate(), getAllCells(), getAllObjectInstances()
  */
-function createBoard(boardWidth = 5, boardHeight = 5, baseNoiseGenerator = null) {
+function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
   const tiles = [];
   let generated = false;
   
   /**
-   * Calcula el tamaño del hexágono individual para posicionar tiles usando la misma lógica de hexágonos pequeños.
+   * Obtiene un bioma por su nombre.
    * 
-   * LÓGICA UNIFICADA: REUTILIZAR hexToPixel3D SIN CONSTANTES INVENTADAS
-   * 
-   * Dentro de cada tile, los hexágonos pequeños se posicionan usando:
-   *   hexToPixel3D(q, r, HEX_RADIUS_WORLD)
-   * 
-   * Donde (q, r) son coordenadas hexagonales desde -GRID_RADIUS hasta GRID_RADIUS.
-   * El hexágono más lejano del centro tiene coordenadas aproximadamente (GRID_RADIUS, 0).
-   * 
-   * La posición del hexágono más lejano es:
-   *   pos = hexToPixel3D(GRID_RADIUS, 0, HEX_RADIUS_WORLD)
-   *   pos.x = HEX_RADIUS_WORLD * sqrt(3) * GRID_RADIUS
-   * 
-   * Por lo tanto, el RADIO de un tile (distancia del centro al hexágono más lejano) es:
-   *   tileRadius = HEX_RADIUS_WORLD * sqrt(3) * GRID_RADIUS
-   * 
-   * Y el DIÁMETRO de un tile (de un borde al borde opuesto) es:
-   *   tileDiameter = 2 * tileRadius = 2 * HEX_RADIUS_WORLD * sqrt(3) * GRID_RADIUS
-   * 
-   * POSICIONAMIENTO DE TILES:
-   * Para posicionar tiles en una grilla hexagonal, usamos la misma función hexToPixel3D:
-   *   hexToPixel3D(qTile, rTile, tileHexSize)
-   * 
-   * La distancia entre centros de hexágonos adyacentes usando hexToPixel3D es:
-   *   distance = tileHexSize * sqrt(3)
-   * 
-   * Para que dos tiles se toquen perfectamente, esta distancia debe ser igual al diámetro:
-   *   tileHexSize * sqrt(3) = 2 * HEX_RADIUS_WORLD * sqrt(3) * GRID_RADIUS
-   *   tileHexSize = 2 * HEX_RADIUS_WORLD * GRID_RADIUS
-   * 
-   * CÁLCULO DEL TAMAÑO EFECTIVO DE UN TILE:
-   * - Radio en celdas: GRID_RADIUS hexágonos desde el centro
-   * - Radio en unidades del mundo: HEX_RADIUS_WORLD * sqrt(3) * GRID_RADIUS
-   * - Diámetro en unidades del mundo: 2 * HEX_RADIUS_WORLD * sqrt(3) * GRID_RADIUS
-   * 
-   * SEPARACIÓN ENTRE TILES:
-   * - Distancia entre centros de tiles adyacentes: tileHexSize * sqrt(3) = 2 * HEX_RADIUS_WORLD * sqrt(3) * GRID_RADIUS
-   * - Esta distancia es exactamente igual al diámetro del tile, garantizando que se toquen sin solaparse
-   * 
-   * @returns {number} Tamaño del hexágono individual en la grilla de tiles (para usar en hexToPixel3D)
+   * @param {string} biomeName - Nombre del bioma (ej: "Grass", "Forest", "Rock")
+   * @returns {Object} Objeto bioma o null si no se encuentra
    */
-  function getTileHexSize() {
-    // CORRECCIÓN PARA FLAT-TOP: Los tiles deben tocarse por los LADOS (no por las puntas)
-    // El tamaño debe asegurar que los lados de los tiles se toquen exactamente
-    // sin dejar espacios negros entre ellos
+  function getBiomeByName(biomeName) {
+    if (!biomeName) return null;
     
-    // Para hexágonos FLAT-TOP:
-    // - Horizontal spacing: size * 1.5
-    // - Vertical spacing: size * sqrt(3)
-    // - Altura (borde plano a borde plano): size * sqrt(3)
-    // - Apotema (centro a borde plano): size * sqrt(3) / 2
+    const biomeMap = {
+      'Grass': typeof grassBiome !== 'undefined' ? grassBiome : null,
+      'Forest': typeof forestBiome !== 'undefined' ? forestBiome : null,
+      'Rock': typeof rockBiome !== 'undefined' ? rockBiome : null,
+      'Clay': typeof clayBiome !== 'undefined' ? clayBiome : null,
+      'Wheat': typeof wheatBiome !== 'undefined' ? wheatBiome : null,
+      'Desert': typeof desertBiome !== 'undefined' ? desertBiome : null
+    };
     
-    const sqrt3 = Math.sqrt(3);
-    
-    // Distancia del centro del tile al centro del hexágono más lejano
-    // Para flat-top, la distancia vertical entre centros es: size * sqrt(3) * distancia_hexagonal
-    // El hexágono más lejano está a distancia hexagonal GRID_RADIUS
-    // Entonces: centerToCenterDistance = HEX_RADIUS_WORLD * sqrt3 * GRID_RADIUS
-    const centerToCenterDistance = HEX_RADIUS_WORLD * sqrt3 * GRID_RADIUS;
-    
-    // Apotema del hexágono individual (distancia del centro al borde plano)
-    // Para flat-top, el borde es plano, así que usamos el apotema
-    const hexApothem = HEX_RADIUS_WORLD * sqrt3 / 2;
-    
-    // Radio total del tile (centro del tile al borde plano del hexágono más lejano)
-    const tileRadius = centerToCenterDistance + hexApothem;
-    
-    // Altura total del tile (borde plano a borde plano opuesto)
-    // Para flat-top, esto es: 2 * tileRadius
-    const tileHeight = 2 * tileRadius;
-    
-    // Para que hexToPixel3D (flat-top) produzca esta distancia entre centros de tiles:
-    // La fórmula flat-top usa: z = size * sqrt(3) * (r + q/2)
-    // Para tiles adyacentes verticalmente (mismo q, r diferente):
-    //   spacing = tileHexSize * sqrt(3)
-    // Para que spacing = tileHeight:
-    //   tileHexSize * sqrt(3) = tileHeight
-    //   tileHexSize = tileHeight / sqrt(3)
-    const tileHexSize = tileHeight / sqrt3;
-    
-    return tileHexSize;
+    return biomeMap[biomeName] || null;
   }
   
   /**
-   * Crea un generador de ruido con offset específico para un tile.
+   * Crea un generador de ruido con offset específico para un tile basado en su posición.
    * 
    * VARIACIÓN ENTRE TILES DEL MISMO BIOMA:
    * Cada tile necesita su propio generador de ruido con un offset diferente
    * para que tiles del mismo bioma tengan relieves y distribuciones diferentes.
    * 
-   * El offset se deriva de las coordenadas hexagonales (qTile, rTile) del tile.
+   * El offset se deriva de la posición (x, z) del tile.
    * Esto hace que cada posición tenga un patrón de ruido único pero determinístico.
    * 
-   * El offset se aplica como un desplazamiento grande en el espacio de ruido,
-   * asegurando que cada tile tenga un terreno completamente diferente.
-   * 
-   * @param {number} qTile - Coordenada hexagonal q del tile
-   * @param {number} rTile - Coordenada hexagonal r del tile
+   * @param {number} x - Posición X del centro del tile
+   * @param {number} z - Posición Z del centro del tile
    * @param {Object} baseGenerator - Generador base (si es null, se crea uno nuevo)
    * @returns {Object} Generador de ruido con wrapper que aplica offset
    */
-  function createTileNoiseGenerator(qTile, rTile, baseGenerator) {
+  function createTileNoiseGenerator(x, z, baseGenerator) {
     // Offset grande para variación significativa entre tiles
     // Multiplicamos por un factor grande (1000) para asegurar que cada tile tenga un patrón único
-    const noiseOffsetX = qTile * 1000.0;
-    const noiseOffsetZ = rTile * 1000.0;
+    // Usamos la posición (x, z) como base para el offset
+    const noiseOffsetX = x * 1000.0;
+    const noiseOffsetZ = z * 1000.0;
     
     // Si no hay generador base, crear uno nuevo (el tile lo hará internamente)
     if (!baseGenerator) {
@@ -199,9 +124,9 @@ function createBoard(boardWidth = 5, boardHeight = 5, baseNoiseGenerator = null)
     
     // Crear wrapper que aplica el offset a las coordenadas antes de evaluar el ruido
     return {
-      noise2D: function(x, z) {
+      noise2D: function(noiseX, noiseZ) {
         // Aplicar offset a las coordenadas para que cada tile tenga un patrón único
-        return baseGenerator.noise2D(x + noiseOffsetX, z + noiseOffsetZ);
+        return baseGenerator.noise2D(noiseX + noiseOffsetX, noiseZ + noiseOffsetZ);
       },
       offsetX: noiseOffsetX,
       offsetZ: noiseOffsetZ
@@ -209,125 +134,61 @@ function createBoard(boardWidth = 5, boardHeight = 5, baseNoiseGenerator = null)
   }
   
   /**
-   * Asigna un bioma a un tile de forma aleatoria y uniforme.
+   * Crea una lista balanceada de biomas para asignar a tiles.
    * 
-   * ELECCIÓN ALEATORIA UNIFORME DE BIOMAS:
-   * Cada tile recibe un bioma elegido aleatoriamente de la lista disponible.
-   * La elección es completamente aleatoria (usa Math.random()) y uniforme,
-   * lo que significa que cada bioma tiene la misma probabilidad de aparecer.
+   * Esta función crea una lista donde cada bioma aparece aproximadamente
+   * la misma cantidad de veces, garantizando que la diferencia máxima
+   * entre cualquier par de biomas sea como máximo 1.
    * 
-   * IMPORTANTE: La elección cambia en cada recarga de la página.
-   * No hay patrón fijo ni semilla determinística para la elección de biomas.
-   * 
-   * @param {number} qTile - Coordenada hexagonal q del tile (no se usa para elección de bioma)
-   * @param {number} rTile - Coordenada hexagonal r del tile (no se usa para elección de bioma)
-   * @returns {Object} Objeto bioma asignado aleatoriamente
+   * @param {number} numTiles - Número total de tiles que necesitan biomas
+   * @param {Array} availableBiomes - Array de biomas disponibles
+   * @returns {Array} Lista de biomas balanceada y mezclada aleatoriamente
    */
-  function assignBiomeToTile(qTile, rTile) {
-    const availableBiomes = getAvailableBiomes();
+  function createBalancedBiomeList(numTiles, availableBiomes) {
     if (availableBiomes.length === 0) {
-      console.warn('No hay biomas disponibles, usando grassBiome por defecto');
-      return typeof grassBiome !== 'undefined' ? grassBiome : null;
+      return [];
     }
     
-    // ELECCIÓN ALEATORIA UNIFORME:
-    // Usar Math.random() para selección completamente aleatoria
-    // Cada tile tiene la misma probabilidad de recibir cualquier bioma
-    const random = Math.random();
-    const biomeIndex = Math.floor(random * availableBiomes.length);
-    return availableBiomes[biomeIndex];
+    // Calcular cuántas veces debe aparecer cada bioma
+    const biomesPerType = Math.floor(numTiles / availableBiomes.length);
+    const remainder = numTiles % availableBiomes.length;
+    
+    // Crear lista balanceada
+    const balancedList = [];
+    
+    // Agregar biomesPerType copias de cada bioma
+    for (const biome of availableBiomes) {
+      for (let i = 0; i < biomesPerType; i++) {
+        balancedList.push(biome);
+      }
+    }
+    
+    // Agregar los biomas restantes (hasta remainder) para que el total sea exactamente numTiles
+    // Esto asegura que la diferencia máxima sea 1
+    for (let i = 0; i < remainder; i++) {
+      balancedList.push(availableBiomes[i]);
+    }
+    
+    // Mezclar aleatoriamente la lista para que no estén todos agrupados
+    // Algoritmo Fisher-Yates shuffle
+    for (let i = balancedList.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [balancedList[i], balancedList[j]] = [balancedList[j], balancedList[i]];
+    }
+    
+    return balancedList;
   }
   
   /**
-   * Calcula el offset de posición global para un tile usando coordenadas hexagonales.
-   * 
-   * CORRECCIÓN DE ROTACIÓN PARA ENCAJE PERFECTO:
-   * 
-   * Los hexágonos pequeños dentro de cada tile están en orientación "pointy-top" con un
-   * angleOffset de Math.PI/6 (30 grados) para que un vértice apunte hacia arriba.
-   * 
-   * La función hexToPixel3D usa la fórmula estándar para pointy-top, que asume que
-   * los hexágonos están orientados con sus vértices en dirección +Z.
-   * 
-   * Para que los tiles encajen perfectamente tipo Catan, necesitamos asegurar que:
-   * 1. El espaciado entre tiles sea correcto (ya corregido en getTileHexSize)
-   * 2. La orientación relativa de los tiles coincida con la orientación de los hexágonos
-   * 
-   * IMPORTANTE: No rotamos los tiles (eso afectaría todo el contenido), sino que
-   * aseguramos que la fórmula de posicionamiento sea consistente con la orientación
-   * pointy-top de los hexágonos individuales.
-   * 
-   * La fórmula hexToPixel3D ya está diseñada para pointy-top, así que debería funcionar
-   * correctamente. Sin embargo, para encaje tipo Catan, verificamos que:
-   * - Los tiles se posicionan usando la misma lógica que los hexágonos pequeños
-   * - El espaciado está basado en el tamaño real del tile (incluyendo el radio de los hexágonos)
-   * 
-   * REUTILIZACIÓN DIRECTA DE LA LÓGICA DE HEXÁGONOS PEQUEÑOS:
-   * 
-   * Cada tile se trata como un "hexágono grande" con coordenadas hexagonales (qTile, rTile).
-   * Para posicionarlo en el mundo, usamos EXACTAMENTE la misma función hexToPixel3D()
-   * que se usa para posicionar hexágonos pequeños dentro de un tile.
-   * 
-   * La única diferencia es el tamaño: en lugar de HEX_RADIUS_WORLD (tamaño de un hexágono pequeño),
-   * usamos tileHexSize (tamaño de un "hexágono individual" en la grilla de tiles).
-   * 
-   * La fórmula es:
-   *   pos = hexToPixel3D(qTile, rTile, tileHexSize)
-   * 
-   * Donde:
-   * - (qTile, rTile): coordenadas hexagonales del tile en el tablero
-   * - tileHexSize: tamaño escalado, calculado para que los tiles se toquen perfectamente
-   * 
-   * CONSISTENCIA: OFFSET ÚNICO PARA TODO EL CONTENIDO
-   * 
-   * Este offset se aplica de forma unificada:
-   * 1. Se calcula aquí: calculateTileOffset(qTile, rTile)
-   * 2. Se pasa a createTile(biome, offsetX, offsetZ, ...)
-   * 3. En tile.js, se aplica a TODAS las celdas: cell.worldX += offsetX, cell.worldZ += offsetZ
-   * 4. Los objetos (árboles, ovejas, trigo) usan directamente cell.worldX/worldZ
-   * 
-   * NO HAY OFFSETS ADICIONALES:
-   * - El terreno usa este offset (a través de cell.worldX/worldZ)
-   * - Los objetos usan el mismo offset (a través de cell.worldX/worldZ)
-   * - No hay fórmulas separadas ni constantes inventadas
-   * 
-   * @param {number} qTile - Coordenada hexagonal q del tile en el tablero
-   * @param {number} rTile - Coordenada hexagonal r del tile en el tablero
-   * @returns {Object} Objeto con { x, z } - offset de posición global del tile
-   */
-  function calculateTileOffset(qTile, rTile) {
-    // Reutilizar la misma función que posiciona hexágonos pequeños
-    // Esta función ya está diseñada para orientación pointy-top, que es la que
-    // usan los hexágonos individuales dentro de cada tile
-    // Solo cambia el tamaño: tileHexSize en lugar de HEX_RADIUS_WORLD
-    const tileHexSize = getTileHexSize();
-    const pos = hexToPixel3D(qTile, rTile, tileHexSize);
-    
-    // Verificación: hexToPixel3D ya usa la fórmula correcta para pointy-top:
-    // x = size * sqrt(3) * (q + r/2)
-    // z = size * 1.5 * r
-    // Esta es la fórmula estándar que garantiza encaje perfecto para hexágonos pointy-top
-    
-    return { x: pos.x, z: pos.z };
-  }
-  
-  /**
-   * Genera todos los tiles del tablero en una grilla hexagonal.
-   * 
-   * TAMAÑO 5×5:
-   * Para generar exactamente 25 tiles en un patrón hexagonal, usamos un radio de 2
-   * desde el centro (0, 0). Esto genera:
-   * - 1 tile en el centro (q=0, r=0)
-   * - 6 tiles en radio 1
-   * - 18 tiles en radio 2
-   * Total: 25 tiles (aproximadamente 5×5 visualmente)
+   * Genera todos los tiles del tablero según la configuración manual proporcionada.
    * 
    * Esta función:
-   * 1. Itera sobre todas las coordenadas hexagonales dentro del radio
-   * 2. Asigna un bioma aleatorio a cada tile
-   * 3. Crea un generador de ruido único para cada tile (con offset)
-   * 4. Calcula el offset de posición usando coordenadas hexagonales
-   * 5. Genera el contenido de cada tile
+   * 1. Cuenta cuántos tiles necesitan bioma aleatorio (sin especificar)
+   * 2. Crea una lista balanceada de biomas para esos tiles
+   * 3. Itera sobre cada configuración de tile en tilesConfig
+   * 4. Asigna un bioma (manual o de la lista balanceada)
+   * 5. Crea un generador de ruido único para cada tile (basado en su posición)
+   * 6. Genera el contenido de cada tile en la posición especificada
    */
   function generate() {
     if (generated) {
@@ -335,69 +196,128 @@ function createBoard(boardWidth = 5, boardHeight = 5, baseNoiseGenerator = null)
       return;
     }
     
-    // Para un tablero 5×5, usamos radio hexagonal de 2
-    // Esto genera aproximadamente 25 tiles (1 + 6 + 18)
-    const BOARD_RADIUS = 2;
-    const tileHexSize = getTileHexSize();
-    const sqrt3 = Math.sqrt(3);
-    // Radio del tile: desde el centro hasta el borde del hexágono más lejano
-    // Incluye el radio del hexágono individual para evitar huecos
-    const tileRadius = HEX_RADIUS_WORLD * sqrt3 * GRID_RADIUS + HEX_RADIUS_WORLD;
-    const tileDiameter = 2 * tileRadius;
-    const tileSpacing = tileHexSize * sqrt3; // Distancia entre centros de tiles adyacentes
+    if (!tilesConfig || tilesConfig.length === 0) {
+      console.warn('No hay configuración de tiles, creando tablero vacío');
+      generated = true;
+      return;
+    }
     
-    console.log(`✓ Creando tablero hexagonal tipo Catan (radio: ${BOARD_RADIUS})`);
-    console.log(`  - Tamaño de un hexágono pequeño: ${HEX_RADIUS_WORLD.toFixed(2)}`);
-    console.log(`  - Radio de un tile (en celdas): ${GRID_RADIUS}`);
-    console.log(`  - Radio de un tile (centro a borde): ${tileRadius.toFixed(2)}`);
-    console.log(`  - Diámetro de un tile (borde a borde): ${tileDiameter.toFixed(2)}`);
-    console.log(`  - Tamaño de hexágono en grilla de tiles: ${tileHexSize.toFixed(2)}`);
-    console.log(`  - Distancia entre centros de tiles adyacentes: ${tileSpacing.toFixed(2)}`);
-    console.log(`  - Verificación: distancia = diámetro? ${Math.abs(tileSpacing - tileDiameter) < 0.01 ? '✓ SÍ' : '✗ NO (diferencia: ' + Math.abs(tileSpacing - tileDiameter).toFixed(3) + ')'}`);
+    console.log(`✓ Creando tablero con ${tilesConfig.length} tiles (posicionamiento manual)`);
     
-    // Generar tiles en una grilla hexagonal completamente llena
-    // Para asegurar que no haya espacios negros, iteramos sobre un rango más amplio
-    // y generamos todos los tiles dentro del radio hexagonal
-    // Esto garantiza que todos los espacios internos estén llenos
-    for (let qTile = -BOARD_RADIUS - 1; qTile <= BOARD_RADIUS + 1; qTile++) {
-      for (let rTile = -BOARD_RADIUS - 1; rTile <= BOARD_RADIUS + 1; rTile++) {
-        // Calcular distancia hexagonal desde el centro (0, 0)
-        const distance = hexDistance(0, 0, qTile, rTile);
-        
-        // Solo generar tiles dentro del radio especificado (estricto para mantener forma)
-        if (distance > BOARD_RADIUS) {
-          continue; // Salta este tile si está fuera del radio
+    // Paso 1: Contar cuántos tiles necesitan bioma aleatorio (sin especificar)
+    let tilesNeedingBiome = 0;
+    for (const config of tilesConfig) {
+      if (!config.biome || config.biome === '') {
+        tilesNeedingBiome++;
+      }
+    }
+    
+    // Paso 2: Crear lista balanceada de biomas para los tiles que no tienen bioma especificado
+    const availableBiomes = getAvailableBiomes();
+    let balancedBiomeList = [];
+    let biomeListIndex = 0;
+    
+    if (tilesNeedingBiome > 0 && availableBiomes.length > 0) {
+      balancedBiomeList = createBalancedBiomeList(tilesNeedingBiome, availableBiomes);
+      console.log(`✓ Lista balanceada de biomas creada: ${tilesNeedingBiome} tiles, ${availableBiomes.length} biomas disponibles`);
+      console.log(`  Cada bioma aparecerá ${Math.floor(tilesNeedingBiome / availableBiomes.length)}-${Math.ceil(tilesNeedingBiome / availableBiomes.length)} veces`);
+    }
+    
+    // Paso 3: Iterar sobre cada configuración de tile
+    for (let i = 0; i < tilesConfig.length; i++) {
+      const config = tilesConfig[i];
+      
+      // Validar que tenga posición (x, z)
+      if (typeof config.x !== 'number' || typeof config.z !== 'number') {
+        console.warn(`Tile ${i}: posición inválida (x: ${config.x}, z: ${config.z}), saltando`);
+        continue;
+      }
+      
+      const tileX = config.x;
+      const tileZ = config.z;
+      const tileId = config.id || `tile_${i}`;
+      
+      // Asignar bioma: usar el especificado o de la lista balanceada
+      let biome;
+      if (config.biome && config.biome !== '') {
+        biome = getBiomeByName(config.biome);
+        if (!biome) {
+          console.warn(`Tile ${tileId}: bioma "${config.biome}" no encontrado, usando de lista balanceada`);
+          // Si el bioma especificado no existe, usar de la lista balanceada
+          if (biomeListIndex < balancedBiomeList.length) {
+            biome = balancedBiomeList[biomeListIndex++];
+          } else {
+            // Fallback: bioma aleatorio si la lista se agotó
+            biome = availableBiomes.length > 0 ? 
+              availableBiomes[Math.floor(Math.random() * availableBiomes.length)] : 
+              (typeof grassBiome !== 'undefined' ? grassBiome : null);
+          }
         }
-        
-        // Asignar bioma al tile (aleatorio uniforme)
-        const biome = assignBiomeToTile(qTile, rTile);
-        
-        // Crear generador de ruido único para este tile (con offset)
-        // Esto asegura que tiles del mismo bioma tengan relieves diferentes
-        const tileNoiseGenerator = createTileNoiseGenerator(qTile, rTile, baseNoiseGenerator);
-        
-        // Calcular offset de posición usando coordenadas hexagonales
-        // Esto posiciona el tile como un hexágono grande en la grilla hexagonal
-        const offset = calculateTileOffset(qTile, rTile);
-        
-        // Crear el tile con su generador de ruido único y su offset de posición
-        const tile = createTile(biome, offset.x, offset.z, tileNoiseGenerator);
-        
-        // Generar el contenido del tile
-        tile.generate();
-        
-        // Guardar el tile
-        tiles.push({
-          tile: tile,
-          qTile: qTile,
-          rTile: rTile,
-          biome: biome
-        });
+      } else {
+        // Usar bioma de la lista balanceada
+        if (biomeListIndex < balancedBiomeList.length) {
+          biome = balancedBiomeList[biomeListIndex++];
+        } else {
+          // Fallback: bioma aleatorio si la lista se agotó (no debería pasar)
+          biome = availableBiomes.length > 0 ? 
+            availableBiomes[Math.floor(Math.random() * availableBiomes.length)] : 
+            (typeof grassBiome !== 'undefined' ? grassBiome : null);
+        }
+      }
+      
+      if (!biome) {
+        console.warn(`Tile ${tileId}: no se pudo asignar bioma, saltando`);
+        continue;
+      }
+      
+      // Crear generador de ruido único para este tile (basado en su posición)
+      const tileNoiseGenerator = createTileNoiseGenerator(tileX, tileZ, baseNoiseGenerator);
+      
+      // Crear el tile en la posición especificada
+      const tile = createTile(biome, tileX, tileZ, tileNoiseGenerator);
+      
+      // Generar el contenido del tile
+      tile.generate();
+      
+      // Guardar el tile
+      tiles.push({
+        tile: tile,
+        id: tileId,
+        x: tileX,
+        z: tileZ,
+        biome: biome
+      });
+      
+      console.log(`  ✓ Tile ${tileId}: ${biome.name || 'Unknown'} en (${tileX.toFixed(1)}, ${tileZ.toFixed(1)})`);
+    }
+    
+    // Mostrar estadísticas de distribución de biomas
+    const biomeCounts = {};
+    for (const tileData of tiles) {
+      const biomeName = tileData.biome ? tileData.biome.name : 'Unknown';
+      biomeCounts[biomeName] = (biomeCounts[biomeName] || 0) + 1;
+    }
+    
+    console.log('✓ Distribución de biomas:');
+    for (const [biomeName, count] of Object.entries(biomeCounts)) {
+      console.log(`  - ${biomeName}: ${count} tiles`);
+    }
+    
+    // Verificar que la diferencia máxima sea ≤ 1
+    const counts = Object.values(biomeCounts);
+    if (counts.length > 0) {
+      const minCount = Math.min(...counts);
+      const maxCount = Math.max(...counts);
+      const maxDifference = maxCount - minCount;
+      if (maxDifference <= 1) {
+        console.log(`✓ Balance correcto: diferencia máxima = ${maxDifference} (≤ 1)`);
+      } else {
+        console.warn(`⚠ Balance desbalanceado: diferencia máxima = ${maxDifference} (> 1)`);
       }
     }
     
     generated = true;
-    console.log(`✓ Tablero generado: ${tiles.length} tiles creados en grilla hexagonal tipo Catan`);
+    console.log(`✓ Tablero generado: ${tiles.length} tiles creados`);
   }
   
   /**
@@ -459,31 +379,48 @@ function createBoard(boardWidth = 5, boardHeight = 5, baseNoiseGenerator = null)
       generate();
     }
     return tiles.map(t => ({
-      qTile: t.qTile,
-      rTile: t.rTile,
-      biome: t.biome.name,
+      id: t.id,
+      x: t.x,
+      z: t.z,
+      biome: t.biome ? t.biome.name : 'Unknown',
       offset: t.tile.getOffset()
     }));
   }
   
   /**
    * Retorna el tamaño del tablero en unidades de mundo.
+   * Calcula un bounding box que contiene todos los tiles.
    * Útil para calcular la posición inicial de la cámara.
    * 
    * @returns {Object} Objeto con { width, height } en unidades de mundo
    */
   function getBoardSize() {
-    const BOARD_RADIUS = 2; // Radio del tablero 5×5
-    const tileHexSize = getTileHexSize();
-    // El diámetro de un tile (de borde a borde opuesto)
-    const tileDiameter = 2 * GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3);
-    // Calcular el tamaño del tablero: distancia del centro al tile más lejano * 2
-    // El tile más lejano está en radio BOARD_RADIUS, y su distancia al centro es aproximadamente:
-    const boardSize = BOARD_RADIUS * tileDiameter * 1.5; // Factor 1.5 para cubrir el área completa
-    return {
-      width: boardSize,
-      height: boardSize
-    };
+    if (!generated || tiles.length === 0) {
+      // Si no hay tiles generados, retornar tamaño por defecto
+      return { width: 100, height: 100 };
+    }
+    
+    // Calcular bounding box de todos los tiles
+    let minX = Infinity, maxX = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+    
+    for (const tileData of tiles) {
+      const offset = tileData.tile.getOffset();
+      // Aproximar el radio de un tile (distancia del centro al borde)
+      // Cada tile tiene GRID_RADIUS hexágonos desde el centro
+      const sqrt3 = Math.sqrt(3);
+      const tileRadius = HEX_RADIUS_WORLD * sqrt3 * GRID_RADIUS + HEX_RADIUS_WORLD;
+      
+      minX = Math.min(minX, offset.x - tileRadius);
+      maxX = Math.max(maxX, offset.x + tileRadius);
+      minZ = Math.min(minZ, offset.z - tileRadius);
+      maxZ = Math.max(maxZ, offset.z + tileRadius);
+    }
+    
+    const width = maxX - minX;
+    const height = maxZ - minZ;
+    
+    return { width, height };
   }
   
   // Retornar interfaz pública del Board

@@ -160,7 +160,7 @@ const clayBiome = {
   name: "Clay",                               // Nombre del bioma (para identificación)
   baseColor: [0.55, 0.30, 0.18],             // Color base intermedio (roca con matiz cobre)
   minHeight: 1,                               // Altura mínima (valles profundos con cobre)
-  maxHeight: 20,                               // Altura máxima (colinas rocosas)
+  maxHeight: 10,                               // Altura máxima (colinas rocosas)
   colorVariance: 0.03,                        // Variación de color moderada
   colorVariationProbability: 0.4,             // Probabilidad de variación (40% de celdas)
   treeDensity: 0.1,                          // 5% de densidad de árboles (vegetación escasa en arcilla)
