@@ -435,10 +435,10 @@ function createSheepInstances(cells, targetBiome = null) {
       console.log(`    - Posición oveja: (${posX.toFixed(6)}, ${posY.toFixed(6)}, ${posZ.toFixed(6)})`);
     }
     
-    const scale = 7;
+    const scale = 1.2;
     
     const scaleMatrix = scaleMat4(scale, scale, scale);
-    const rotationY = 0;
+    const rotationY = Math.random() * Math.PI * 2; // orientación aleatoria en Y para cada oveja
     const cosR = Math.cos(rotationY);
     const sinR = Math.sin(rotationY);
     const rotationMatrix = new Float32Array([
@@ -462,4 +462,3 @@ function createSheepInstances(cells, targetBiome = null) {
 
   return sheepInstances;
 }
-
