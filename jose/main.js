@@ -227,9 +227,9 @@ async function main() {
     };
     terrainSize = Math.max(boardSize.width, boardSize.height) + GRID_RADIUS * HEX_RADIUS_WORLD * 2;
     
-    const cameraDistance = terrainSize * 1.2;
-    cameraEye = [cameraDistance * 0.6, cameraDistance * 1.0, cameraDistance * 0.6];
-    cameraCenter = [0, 0, 0];
+    const cameraDistance = terrainSize * 1.5;
+    cameraEye = [cameraDistance * 0.35, cameraDistance * 0.35, cameraDistance * 0.35];
+    cameraCenter = [30, 0, 0];
     cameraUp = [0, 1, 0];
   } else {
     terrainSize = GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3) * 2;
@@ -309,6 +309,94 @@ async function main() {
       viewMatrix = lookAt(currentCameraEye, currentCameraCenter, cameraUp);
       renderScene();
     }, { passive: false });
+    
+    // ============================================================
+    // ROTACIÓN ORBITAL CON CLICK Y ARRASTRE
+    // ============================================================
+    let isDragging = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+    const ROTATION_SENSITIVITY = 0.005; // Sensibilidad de rotación
+    
+    webgl.canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 0) { // Click izquierdo
+        isDragging = true;
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+        webgl.canvas.style.cursor = 'grabbing';
+      }
+    });
+    
+    webgl.canvas.addEventListener('mousemove', (e) => {
+      if (isDragging) {
+        const deltaX = e.clientX - lastMouseX;
+        const deltaY = e.clientY - lastMouseY;
+        
+        // Calcular vector desde el centro hacia la cámara
+        const cameraOffset = [
+          currentCameraEye[0] - currentCameraCenter[0],
+          currentCameraEye[1] - currentCameraCenter[1],
+          currentCameraEye[2] - currentCameraCenter[2]
+        ];
+        
+        const distance = Math.sqrt(
+          cameraOffset[0] * cameraOffset[0] +
+          cameraOffset[1] * cameraOffset[1] +
+          cameraOffset[2] * cameraOffset[2]
+        );
+        
+        // Convertir a coordenadas esféricas
+        let theta = Math.atan2(cameraOffset[0], cameraOffset[2]); // Azimuth (horizontal)
+        let phi = Math.acos(cameraOffset[1] / distance); // Elevation (vertical)
+        
+        // Aplicar rotación basada en el movimiento del mouse
+        theta -= deltaX * ROTATION_SENSITIVITY; // Rotación horizontal
+        phi += deltaY * ROTATION_SENSITIVITY; // Rotación vertical
+        
+        // Limitar el ángulo vertical para evitar voltear la cámara
+        phi = Math.max(0.1, Math.min(Math.PI - 0.1, phi));
+        
+        // Convertir de vuelta a coordenadas cartesianas
+        const newCameraOffset = [
+          distance * Math.sin(phi) * Math.sin(theta),
+          distance * Math.cos(phi),
+          distance * Math.sin(phi) * Math.cos(theta)
+        ];
+        
+        // Actualizar posición de la cámara
+        currentCameraEye[0] = currentCameraCenter[0] + newCameraOffset[0];
+        currentCameraEye[1] = currentCameraCenter[1] + newCameraOffset[1];
+        currentCameraEye[2] = currentCameraCenter[2] + newCameraOffset[2];
+        
+        // Actualizar el vector "up" para mantener la orientación correcta
+        // Calcular el vector "right" para mantener el up correcto
+        const forward = normalizeVec3([
+          currentCameraCenter[0] - currentCameraEye[0],
+          currentCameraCenter[1] - currentCameraEye[1],
+          currentCameraCenter[2] - currentCameraEye[2]
+        ]);
+        const right = normalizeVec3(crossVec3(forward, [0, 1, 0]));
+        const newUp = normalizeVec3(crossVec3(right, forward));
+        
+        viewMatrix = lookAt(currentCameraEye, currentCameraCenter, newUp);
+        renderScene();
+        
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+      }
+    });
+    
+    webgl.canvas.addEventListener('mouseup', (e) => {
+      if (e.button === 0) { // Click izquierdo
+        isDragging = false;
+        webgl.canvas.style.cursor = 'default';
+      }
+    });
+    
+    webgl.canvas.addEventListener('mouseleave', () => {
+      isDragging = false;
+      webgl.canvas.style.cursor = 'default';
+    });
     
     function updateCamera() {
       let moved = false;
@@ -419,7 +507,7 @@ async function main() {
     cameraUpdateLoop();
     
     console.log('✓ Controles de cámara activados para Board Mode');
-    console.log('  W/S/Arrows: Mover | Q/E: Elevar/Bajar | Rueda mouse/+/−: Zoom | R: Reset');
+    console.log('  W/S/Arrows: Mover | Q/E: Elevar/Bajar | Rueda mouse/+/−: Zoom | Click+Arrastre: Rotar vista | R: Reset');
   }
   
   // Función para redibujar la escena
