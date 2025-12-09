@@ -107,8 +107,6 @@ function detectWaterClusters(cells, minClusterSize = 6) {
     }
   }
   
-  console.log(`✓ Detección de clusters de agua: ${clusterCount} clusters, ${totalWaterCells} celdas de agua (tamaño mínimo: ${minClusterSize})`);
-  
   return clusterCount;
 }
 

@@ -21,38 +21,7 @@
 
 /**
  * Calcula el color de una celda del bioma Clay basado en su altura y posición.
- * 
- * RESPONSABILIDAD:
- * - Generar colores de arcilla (naranja/terracota y marrón rojizo)
- * - Crear variación de color basada en altura (valles más naranjas, colinas más marrones)
- * - Opcionalmente marcar áreas muy bajas como candidatas a agua
- * - Aplicar parches verdes ocasionales para vegetación en áreas específicas
- * 
- * PALETA DE COLORES CLAY:
- * 
- * 1. COLOR PRINCIPAL (baseColor):
- *    - Naranja/terracota: [0.75, 0.45, 0.25] (típico de arcilla)
- *    - Marrón rojizo: [0.65, 0.35, 0.20] (arcilla más oscura)
- *    - Los colores varían según la altura: valles más claros/naranjas, colinas más oscuras/marrones
- * 
- * 2. VARIACIÓN POR ALTURA:
- *    - Áreas bajas (valles): más naranjas y claras [0.75, 0.45, 0.25]
- *    - Áreas medias: marrón rojizo intermedio [0.70, 0.40, 0.22]
- *    - Áreas altas (colinas): marrón rojizo más oscuro [0.60, 0.32, 0.18]
- * 
- * 3. PARCHES VERDES (vegetación):
- *    - Ocasionalmente, algunas celdas pueden tener parches verdes [0.33, 0.61, 0.23]
- *    - Representa vegetación escasa que crece en áreas de arcilla
- *    - Probabilidad baja (~5-10%) para mantener el aspecto arcilloso dominante
- * 
- * 4. ZONAS DE AGUA (opcional):
- *    - Áreas muy bajas pueden marcarse como candidatas a agua
- *    - Similar al bioma Forest, pero menos común
- * 
- * @param {number} height - Altura de la celda (entero entre minHeight y maxHeight)
- * @param {Object} biome - Objeto bioma con { minHeight, maxHeight, baseColor }
- * @param {Object} cell - Objeto celda (opcional, usado para marcar candidateWater)
- * @returns {number[]} Color RGB [r, g, b] según altura y variación
+ * Genera colores de arcilla con variación por altura y detecta zonas de agua.
  */
 function computeClayColor(height, biome, cell = null) {
   // Normaliza la altura del rango [minHeight, maxHeight] a [0, 1]
@@ -157,15 +126,15 @@ function computeClayColor(height, biome, cell = null) {
  * - Sin ovejas (terreno de arcilla/minas no es adecuado para ellas)
  */
 const clayBiome = {
-  name: "Clay",                               // Nombre del bioma (para identificación)
-  baseColor: [0.55, 0.30, 0.18],             // Color base intermedio (roca con matiz cobre)
-  minHeight: 1,                               // Altura mínima (valles profundos con cobre)
-  maxHeight: 10,                               // Altura máxima (colinas rocosas)
-  colorVariance: 0.03,                        // Variación de color moderada
-  colorVariationProbability: 0.4,             // Probabilidad de variación (40% de celdas)
-  treeDensity: 0.1,                          // 5% de densidad de árboles (vegetación escasa en arcilla)
-  sheepDensity: 0.0,                          // Sin ovejas en este bioma
-  heightNoiseScale: 0.15,                     // Escala del ruido para alturas (terreno variado)
-  computeColor: computeClayColor              // Función específica para calcular colores
+  name: "Clay",
+  baseColor: [0.55, 0.30, 0.18],
+  minHeight: 1,
+  maxHeight: 10,
+  colorVariance: 0.03,
+  colorVariationProbability: 0.4,
+  treeDensity: 0.1,
+  sheepDensity: 0.0,
+  heightNoiseScale: 0.15,
+  computeColor: computeClayColor
 };
 

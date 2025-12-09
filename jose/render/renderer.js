@@ -109,8 +109,6 @@ function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, h
     }
   }
   
-  const terrainCellCount = cells.length - waterCellCount;
-  console.log(`✓ Grilla 3D dibujada: ${terrainCellCount} prismas de terreno + ${waterCellCount} prismas de agua (total: ${cells.length})`);
 }
 
 /**
@@ -150,7 +148,7 @@ function drawMesh(gl, program, positionBuffer, normalBuffer, indexBuffer, indexC
  * Dibuja un árbol completo (tronco + copa) con colores diferentes.
  */
 function drawTree(gl, program, treeMesh, modelMatrix, viewMatrix, projectionMatrix) {
-  drawTreeWithColor(gl, program, treeMesh, modelMatrix, viewMatrix, projectionMatrix, TREE_CROWN_COLOR_GRASS);
+  drawTreeWithColor(gl, program, treeMesh, modelMatrix, viewMatrix, projectionMatrix, TREE_CROWN_COLOR);
 }
 
 /**

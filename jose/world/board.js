@@ -205,17 +205,13 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
    */
   function generate() {
     if (generated) {
-      console.warn('Board ya generado, ignorando llamada a generate()');
       return;
     }
     
     if (!tilesConfig || tilesConfig.length === 0) {
-      console.warn('No hay configuración de tiles, creando tablero vacío');
       generated = true;
       return;
     }
-    
-    console.log(`✓ Creando tablero con ${tilesConfig.length} tiles (posicionamiento manual)`);
     
     // Paso 1: Contar cuántos tiles necesitan bioma aleatorio (sin especificar)
     let tilesNeedingBiome = 0;
@@ -232,8 +228,6 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
     
     if (tilesNeedingBiome > 0 && availableBiomes.length > 0) {
       balancedBiomeList = createBalancedBiomeList(tilesNeedingBiome, availableBiomes);
-      console.log(`✓ Lista balanceada de biomas creada: ${tilesNeedingBiome} tiles, ${availableBiomes.length} biomas disponibles`);
-      console.log(`  Cada bioma aparecerá ${Math.floor(tilesNeedingBiome / availableBiomes.length)}-${Math.ceil(tilesNeedingBiome / availableBiomes.length)} veces`);
     }
     
     // Paso 3: Iterar sobre cada configuración de tile
@@ -242,7 +236,6 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
       
       // Validar que tenga posición (x, z)
       if (typeof config.x !== 'number' || typeof config.z !== 'number') {
-        console.warn(`Tile ${i}: posición inválida (x: ${config.x}, z: ${config.z}), saltando`);
         continue;
       }
       
@@ -255,12 +248,10 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
       if (config.biome && config.biome !== '') {
         biome = getBiomeByName(config.biome);
         if (!biome) {
-          console.warn(`Tile ${tileId}: bioma "${config.biome}" no encontrado, usando de lista balanceada`);
           // Si el bioma especificado no existe, usar de la lista balanceada
           if (biomeListIndex < balancedBiomeList.length) {
             biome = balancedBiomeList[biomeListIndex++];
           } else {
-            // Fallback: bioma aleatorio si la lista se agotó
             biome = availableBiomes.length > 0 ? 
               availableBiomes[Math.floor(Math.random() * availableBiomes.length)] : 
               (typeof grassBiome !== 'undefined' ? grassBiome : null);
@@ -271,7 +262,6 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
         if (biomeListIndex < balancedBiomeList.length) {
           biome = balancedBiomeList[biomeListIndex++];
         } else {
-          // Fallback: bioma aleatorio si la lista se agotó (no debería pasar)
           biome = availableBiomes.length > 0 ? 
             availableBiomes[Math.floor(Math.random() * availableBiomes.length)] : 
             (typeof grassBiome !== 'undefined' ? grassBiome : null);
@@ -279,7 +269,6 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
       }
       
       if (!biome) {
-        console.warn(`Tile ${tileId}: no se pudo asignar bioma, saltando`);
         continue;
       }
       
@@ -300,42 +289,10 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
         z: tileZ,
         biome: biome
       });
-      
-      console.log(`  ✓ Tile ${tileId}: ${biome.name || 'Unknown'} en (${tileX.toFixed(1)}, ${tileZ.toFixed(1)})`);
-    }
-    
-    // Mostrar estadísticas de distribución de biomas
-    const biomeCounts = {};
-    for (const tileData of tiles) {
-      const biomeName = tileData.biome ? tileData.biome.name : 'Unknown';
-      biomeCounts[biomeName] = (biomeCounts[biomeName] || 0) + 1;
-    }
-    
-    console.log('✓ Distribución de biomas:');
-    for (const [biomeName, count] of Object.entries(biomeCounts)) {
-      console.log(`  - ${biomeName}: ${count} tiles`);
-    }
-    
-    // Verificar que la diferencia máxima sea ≤ 1
-    const counts = Object.values(biomeCounts);
-    if (counts.length > 0) {
-      const minCount = Math.min(...counts);
-      const maxCount = Math.max(...counts);
-      const maxDifference = maxCount - minCount;
-      if (maxDifference <= 1) {
-        console.log(`✓ Balance correcto: diferencia máxima = ${maxDifference} (≤ 1)`);
-      } else {
-        console.warn(`⚠ Balance desbalanceado: diferencia máxima = ${maxDifference} (> 1)`);
-      }
     }
     
     generated = true;
-    // Calcular los bounds del board (área exacta que contiene todos los tiles + spacing)
     calculateBoardBounds();
-    
-    generated = true;
-    console.log(`✓ Tablero generado: ${tiles.length} tiles creados`);
-    console.log(`✓ Board bounds: width=${boardBounds.width.toFixed(2)}, height=${boardBounds.height.toFixed(2)}, center=(${boardBounds.centerX.toFixed(2)}, ${boardBounds.centerZ.toFixed(2)})`);
   }
   
   /**
@@ -403,7 +360,6 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
    */
   function getAllCells() {
     if (!generated) {
-      console.warn('Board no generado, llamando generate() automáticamente');
       generate();
     }
     
@@ -422,7 +378,6 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
    */
   function getAllObjectInstances() {
     if (!generated) {
-      console.warn('Board no generado, llamando generate() automáticamente');
       generate();
     }
     
@@ -451,7 +406,6 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
    */
   function getTilesInfo() {
     if (!generated) {
-      console.warn('Board no generado, llamando generate() automáticamente');
       generate();
     }
     return tiles.map(t => ({
@@ -476,7 +430,6 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
    */
   function getBoardSize() {
     if (!generated) {
-      console.warn('Board no generado, llamando generate() automáticamente');
       generate();
     }
     
@@ -500,7 +453,6 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
    */
   function getBoardCenter() {
     if (!generated) {
-      console.warn('Board no generado, llamando generate() automáticamente');
       generate();
     }
     
@@ -517,7 +469,6 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
    */
   function getBoardBounds() {
     if (!generated) {
-      console.warn('Board no generado, llamando generate() automáticamente');
       generate();
     }
     
@@ -534,4 +485,78 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
     getBoardCenter: getBoardCenter,
     getBoardBounds: getBoardBounds
   };
+}
+
+/**
+ * Genera celdas hexagonales para rellenar un hexágono grande.
+ * Se usa para el fondo del board, con altura fija y color fijo.
+ */
+function createBackgroundHexCells(bigHexRadius, centerX, centerZ, cellHeight = 1.0, defaultColor = [0.1, 0.1, 0.1], tileCells = []) {
+  const cells = [];
+  const size = HEX_RADIUS_WORLD;
+
+  const axialRadius = Math.ceil(bigHexRadius / (size * 1.5));
+
+  let nearCellsCount = 0;
+  let farCellsCount = 0;
+
+  for (let q = -axialRadius; q <= axialRadius; q++) {
+    for (let r = -axialRadius; r <= axialRadius; r++) {
+      if (hexDistance(0, 0, q, r) > axialRadius) continue;
+
+      const { x, z } = hexToPixel3D(q, r, size);
+      const worldX = x + centerX;
+      const worldZ = z + centerZ;
+
+      const dist = Math.sqrt(Math.pow(worldX - centerX, 2) + Math.pow(worldZ - centerZ, 2));
+      if (dist > bigHexRadius + size * 0.1) continue;
+
+      let minDistanceToTile = Infinity;
+      for (const tileCell of tileCells) {
+        const distance = Math.sqrt(
+          Math.pow(worldX - tileCell.worldX, 2) + 
+          Math.pow(worldZ - tileCell.worldZ, 2)
+        );
+        minDistanceToTile = Math.min(minDistanceToTile, distance);
+      }
+
+      let cellColor;
+      if (minDistanceToTile <= BOARD_CELL_PROXIMITY_DISTANCE) {
+        const rand = Math.random();
+        if (rand < BOARD_COLOR_VARIATION_1_PROBABILITY) {
+          cellColor = BOARD_BACKGROUND_COLOR_VARIATION_1;
+        } else if (rand < BOARD_COLOR_VARIATION_1_PROBABILITY + BOARD_COLOR_VARIATION_2_PROBABILITY) {
+          cellColor = BOARD_BACKGROUND_COLOR_VARIATION_2;
+        } else {
+          cellColor = BOARD_BACKGROUND_COLOR_NEAR;
+        }
+        nearCellsCount++;
+      } else {
+        cellColor = defaultColor;
+        farCellsCount++;
+      }
+
+      let cellHeightByDistance;
+      if (minDistanceToTile <= 1.5) {
+        cellHeightByDistance = 0.85;
+      } else if (minDistanceToTile <= 2.1) {
+        cellHeightByDistance = 0.6;
+      } else if (minDistanceToTile <= 2.7) {
+        cellHeightByDistance = 0.3;
+      } else {
+        cellHeightByDistance = 0.2;
+      }
+
+      cells.push({
+        q,
+        r,
+        worldX,
+        worldZ,
+        height: cellHeightByDistance,
+        color: cellColor
+      });
+    }
+  }
+
+  return cells;
 }

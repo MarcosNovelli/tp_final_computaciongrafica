@@ -25,15 +25,6 @@
 
 /**
  * Inicializa el contexto WebGL obteniendo el canvas del HTML.
- * 
- * RESPONSABILIDAD:
- * - Buscar el elemento canvas en el DOM
- * - Obtener el contexto WebGL del navegador
- * - Verificar que WebGL esté disponible
- * 
- * @param {string} canvasId - ID del elemento canvas en el HTML
- * @returns {{gl: WebGLRenderingContext, canvas: HTMLCanvasElement} | null}
- *          Objeto con el contexto WebGL y el canvas, o null si hay error
  */
 function initWebGL(canvasId = 'glCanvas') {
   const canvas = document.getElementById(canvasId);
@@ -51,7 +42,6 @@ function initWebGL(canvasId = 'glCanvas') {
     return null;
   }
 
-  console.log('✓ WebGL inicializado correctamente');
   return { gl, canvas };
 }
 
@@ -63,17 +53,6 @@ function initWebGL(canvasId = 'glCanvas') {
 
 /**
  * Crea y compila un shader del tipo especificado.
- * 
- * RESPONSABILIDAD:
- * - Crear un objeto shader en WebGL
- * - Compilar el código fuente del shader
- * - Verificar errores de compilación y reportarlos
- * - Retornar el shader compilado o null si hay error
- * 
- * @param {WebGLRenderingContext} gl - Contexto WebGL
- * @param {number} type - Tipo de shader (gl.VERTEX_SHADER o gl.FRAGMENT_SHADER)
- * @param {string} source - Código fuente del shader en formato string
- * @returns {WebGLShader | null} - Shader compilado o null si hay error
  */
 function createShader(gl, type, source) {
   // Crea un objeto shader del tipo especificado
@@ -98,19 +77,6 @@ function createShader(gl, type, source) {
 
 /**
  * Crea un programa WebGL que combina un vertex shader y un fragment shader.
- * 
- * RESPONSABILIDAD:
- * - Crear y compilar ambos shaders (vertex y fragment)
- * - Crear un programa WebGL
- * - Adjuntar ambos shaders al programa
- * - Vincular el programa (conectar los shaders)
- * - Verificar errores de vinculación
- * - Retornar el programa listo para usar o null si hay error
- * 
- * @param {WebGLRenderingContext} gl - Contexto WebGL
- * @param {string} vertexSource - Código fuente del vertex shader
- * @param {string} fragmentSource - Código fuente del fragment shader
- * @returns {WebGLProgram | null} - Programa WebGL o null si hay error
  */
 function createProgram(gl, vertexSource, fragmentSource) {
   // Crea y compila ambos shaders usando la función createShader
@@ -139,7 +105,6 @@ function createProgram(gl, vertexSource, fragmentSource) {
     return null;
   }
   
-  console.log('✓ Programa WebGL creado y vinculado correctamente');
   return program;
 }
 
@@ -151,20 +116,6 @@ function createProgram(gl, vertexSource, fragmentSource) {
 
 /**
  * Crea un buffer WebGL y carga datos en él.
- * 
- * RESPONSABILIDAD:
- * - Crear un nuevo buffer en la GPU
- * - Activar el buffer (seleccionarlo)
- * - Cargar los datos en el buffer
- * - Configurar el buffer como estático (datos no cambiarán)
- * 
- * Un buffer es una región de memoria en la GPU donde almacenamos
- * datos de vértices (como posiciones, colores, normales, etc.).
- * 
- * @param {WebGLRenderingContext} gl - Contexto WebGL
- * @param {Float32Array | Array<number>} data - Datos de los vértices
- * @param {number} usage - Uso del buffer (gl.STATIC_DRAW por defecto)
- * @returns {WebGLBuffer} - Buffer creado y cargado con los datos
  */
 function createBuffer(gl, data, usage = gl.STATIC_DRAW) {
   // Crea un nuevo buffer
@@ -189,16 +140,6 @@ function createBuffer(gl, data, usage = gl.STATIC_DRAW) {
 
 /**
  * Limpia el canvas con un color específico.
- * 
- * RESPONSABILIDAD:
- * - Establecer el color de limpieza
- * - Limpiar el buffer de color del canvas
- * 
- * @param {WebGLRenderingContext} gl - Contexto WebGL
- * @param {number} r - Componente rojo (0.0 a 1.0)
- * @param {number} g - Componente verde (0.0 a 1.0)
- * @param {number} b - Componente azul (0.0 a 1.0)
- * @param {number} a - Componente alpha/transparencia (0.0 a 1.0)
  */
 function clearCanvas(gl, r = 0.1, g = 0.1, b = 0.15, a = 1.0) {
   gl.clearColor(r, g, b, a);
@@ -208,22 +149,6 @@ function clearCanvas(gl, r = 0.1, g = 0.1, b = 0.15, a = 1.0) {
 
 /**
  * Configura un atributo de vértice para que lea datos de un buffer.
- * 
- * RESPONSABILIDAD:
- * - Obtener la ubicación del atributo en el shader
- * - Activar el buffer que contiene los datos
- * - Habilitar el atributo
- * - Especificar cómo leer los datos del buffer (formato, stride, offset)
- * 
- * @param {WebGLRenderingContext} gl - Contexto WebGL
- * @param {WebGLProgram} program - Programa de shaders
- * @param {string} attributeName - Nombre del atributo en el shader (ej: 'a_position')
- * @param {WebGLBuffer} buffer - Buffer que contiene los datos
- * @param {number} size - Número de componentes por vértice (ej: 2 para x,y)
- * @param {number} type - Tipo de dato (gl.FLOAT por defecto)
- * @param {boolean} normalize - Si normalizar los valores (false por defecto)
- * @param {number} stride - Bytes entre vértices (0 = compacto)
- * @param {number} offset - Bytes desde el inicio del buffer (0 por defecto)
  */
 function setupAttribute(
   gl,

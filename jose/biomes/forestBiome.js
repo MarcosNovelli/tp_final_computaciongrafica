@@ -20,43 +20,7 @@
 
 /**
  * Calcula el color de una celda del bioma Forest con variación y ajuste por altura.
- * 
- * RESPONSABILIDAD:
- * - Generar un color para una celda del bioma Forest
- * - Aplicar variación aleatoria sutil usando colorVariance
- * - Ajustar el brillo según la altura (celdas más bajas = más oscuras, más altas = más claras)
- * - Detectar zonas de agua en áreas muy bajas
- * - Asegurar que los valores finales estén en el rango [0.0, 1.0]
- * 
- * COLOR BASE (baseColor):
- * - Representa el color RGB principal del bioma Forest (marrón terroso)
- * - Es el color de referencia del que parten todas las variaciones
- * - Ejemplo: [0.45, 0.28, 0.16] = marrón del suelo del bosque
- * 
- * VARIACIÓN DE COLOR (colorVariance):
- * - Controla cuánto puede variar cada componente RGB del color base
- * - Valores pequeños (ej: 0.06) = variación sutil, colores más consistentes
- * - Valores grandes (ej: 0.2) = variación más pronunciada, colores más diversos
- * - Para cada componente (R, G, B), se suma un valor aleatorio entre -colorVariance y +colorVariance
- * 
- * AJUSTE POR ALTURA:
- * - Celdas más bajas se hacen un poco más oscuras (menor brillo)
- * - Celdas más altas se hacen un poco más claras (mayor brillo)
- * - Esto simula que áreas bajas tienen suelo más húmedo/oscuro
- * - La altura se normaliza del rango [minHeight, maxHeight] a [0, 1]
- * - Se aplica un factor de brillo: 0.92 + normalizedHeight * 0.08
- * - Esto significa que celdas en la altura mínima serán 8% más oscuras
- * - Y celdas en la altura máxima serán 8% más claras
- * 
- * ZONAS DE AGUA (OPCIONAL):
- * - Si la altura normalizada es muy baja (menor a 0.15), se marca como agua
- * - El color del agua es azul: [0.1, 0.2, 0.5]
- * - Esto crea pequeñas zonas de agua en áreas depresionadas del bosque
- * 
- * @param {number} height - Altura de la celda (entero entre minHeight y maxHeight)
- * @param {Object} biome - Objeto bioma con { baseColor, minHeight, maxHeight, colorVariance }
- * @param {Object} cell - Objeto celda (opcional, usado para marcar isWater)
- * @returns {number[]} Color RGB [r, g, b] con variación y ajuste por altura
+ * Aplica variación aleatoria sutil, ajusta el brillo según la altura y detecta zonas de agua.
  */
 function computeForestColor(height, biome, cell = null) {
   // Normaliza la altura del rango [minHeight, maxHeight] a [0, 1]
@@ -144,15 +108,15 @@ const WATER_COLOR = [0.106, 0.2, 0.294]; // Azul oscuro para el agua
  * - Zonas de agua opcionales en áreas muy bajas
  */
 const forestBiome = {
-  name: "Forest",                              // Nombre del bioma (para identificación)
-  baseColor: [0.25, 0.15, 0.08],              // Marrón terroso más oscuro (suelo de bosque)
-  minHeight: 1,                               // Altura mínima (bajado de 2 a 1 para transiciones más suaves)
-  maxHeight: 7,                               // Altura máxima (bajado de 8 a 7 para transiciones más suaves)
-  colorVariance: 0.02,                         // Variación de color sutil
-  colorVariationProbability: 0.4,              // Probabilidad de variación (40% de celdas)
-  treeDensity: 0.45,                           // 35% de las celdas tendrán árboles (bosque denso)
-  sheepDensity: 0.0,                           // Sin ovejas en este bioma
-  heightNoiseScale: 0.20,                      // Escala del ruido para alturas (ajustable)
-  computeColor: computeForestColor             // Función específica para calcular colores
+  name: "Forest",
+  baseColor: [0.25, 0.15, 0.08],
+  minHeight: 1,
+  maxHeight: 7,
+  colorVariance: 0.02,
+  colorVariationProbability: 0.4,
+  treeDensity: 0.45,
+  sheepDensity: 0.0,
+  heightNoiseScale: 0.20,
+  computeColor: computeForestColor
 };
 

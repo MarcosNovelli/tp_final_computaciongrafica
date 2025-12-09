@@ -27,101 +27,9 @@
  */
 
 /**
- * Genera celdas hexagonales para rellenar un hexágono grande.
- * Se usa para el fondo del board, con altura fija y color fijo.
- *
- * @param {number} bigHexRadius - Radio del hexágono grande (distancia centro-vértice) en unidades de mundo
- * @param {number} centerX - Posición X del centro del hexágono
- * @param {number} centerZ - Posición Z del centro del hexágono
- * @param {number} cellHeight - Altura de cada celda
- * @param {Array} color - Color [r,g,b] de las celdas
- * @returns {Array} celdas generadas
- */
-function createBackgroundHexCells(bigHexRadius, centerX, centerZ, cellHeight = 1.0, defaultColor = [0.1, 0.1, 0.1], tileCells = []) {
-  const cells = [];
-  const size = HEX_RADIUS_WORLD;
-
-  // Aproximar radio axial; un paso axial desplaza ~1.5*size en X.
-  const axialRadius = Math.ceil(bigHexRadius / (size * 1.5));
-
-  let nearCellsCount = 0;
-  let farCellsCount = 0;
-
-  for (let q = -axialRadius; q <= axialRadius; q++) {
-    for (let r = -axialRadius; r <= axialRadius; r++) {
-      if (hexDistance(0, 0, q, r) > axialRadius) continue;
-
-      const { x, z } = hexToPixel3D(q, r, size);
-      const worldX = x + centerX;
-      const worldZ = z + centerZ;
-
-      const dist = Math.sqrt(Math.pow(worldX - centerX, 2) + Math.pow(worldZ - centerZ, 2));
-      if (dist > bigHexRadius + size * 0.1) continue;
-
-      // Calcular la distancia mínima desde esta celda del board a cualquier celda de tile
-      let minDistanceToTile = Infinity;
-      for (const tileCell of tileCells) {
-        const distance = Math.sqrt(
-          Math.pow(worldX - tileCell.worldX, 2) + 
-          Math.pow(worldZ - tileCell.worldZ, 2)
-        );
-        minDistanceToTile = Math.min(minDistanceToTile, distance);
-      }
-
-      // Decidir el color según la proximidad
-      let cellColor;
-      if (minDistanceToTile <= BOARD_CELL_PROXIMITY_DISTANCE) {
-        // Celda cerca de un tile: elegir entre color base o variaciones según probabilidades
-        const rand = Math.random();
-        if (rand < BOARD_COLOR_VARIATION_1_PROBABILITY) {
-          // Usar primera variación
-          cellColor = BOARD_BACKGROUND_COLOR_VARIATION_1;
-        } else if (rand < BOARD_COLOR_VARIATION_1_PROBABILITY + BOARD_COLOR_VARIATION_2_PROBABILITY) {
-          // Usar segunda variación
-          cellColor = BOARD_BACKGROUND_COLOR_VARIATION_2;
-        } else {
-          // Usar color base (el más común)
-          cellColor = BOARD_BACKGROUND_COLOR_NEAR;
-        }
-        nearCellsCount++;
-      } else {
-        cellColor = defaultColor;
-        farCellsCount++;
-      }
-
-      // Calcular altura según la distancia al tile más cercano
-      let cellHeightByDistance;
-      if (minDistanceToTile <= 1.5) {
-        cellHeightByDistance = 0.85;
-      } else if (minDistanceToTile <= 2.1) {
-        cellHeightByDistance = 0.6;
-      } else if (minDistanceToTile <= 2.7) {
-        cellHeightByDistance = 0.3;
-      } else {
-        cellHeightByDistance = 0.2; // Altura por defecto para celdas lejanas
-      }
-
-      cells.push({
-        q,
-        r,
-        worldX,
-        worldZ,
-        height: cellHeightByDistance,
-        color: cellColor
-      });
-    }
-  }
-
-  console.log(`✓ Fondo hexagonal: ${cells.length} celdas generadas (${nearCellsCount} cerca de tiles, ${farCellsCount} lejanas), radio=${bigHexRadius.toFixed(2)}`);
-  return cells;
-}
-
-/**
  * Función principal que inicializa la aplicación y dibuja una grilla de prismas hexagonales.
  */
 async function main() {
-  console.log('Iniciando aplicación WebGL...');
-
   // Paso 1: Inicializar WebGL (función de render/gl.js)
   const webgl = initWebGL('glCanvas');
   if (!webgl) {
@@ -166,10 +74,9 @@ async function main() {
     
     if (noise2D && typeof noise2D === 'function') {
       sharedNoiseGenerator = { noise2D: noise2D };
-      console.log('✓ Generador de ruido compartido inicializado');
     }
   } catch (error) {
-    console.warn('⚠ No se pudo crear generador de ruido compartido, cada tile creará el suyo');
+    // Cada tile creará su propio generador de ruido
   }
   
   // Paso 4: Seleccionar modo de visualización
@@ -227,8 +134,6 @@ async function main() {
             { x: HORIZONTAL_SPACING * 3, z: -VERTICAL_SPACING * 2 },
           ];
           
-          console.log(`✓ Modo: Tablero (${tilesConfig.length} tiles manuales)`);
-          
           board = createBoard(tilesConfig, sharedNoiseGenerator);
           board.generate();
           
@@ -239,15 +144,9 @@ async function main() {
           wheatInstances = allObjects.wheatInstances;
           
           activeBiome = { name: "Board" };
-          
-          console.log(`✓ Tablero generado: ${cells.length} celdas totales, ${treeInstances.length} árboles, ${sheepInstances.length} ovejas, ${wheatInstances.length} trigo`);
   } else {
     // MODO BIOMA ÚNICO: Lógica existente (un solo tile)
-    console.log(`✓ Modo: Bioma Único`);
-    
     activeBiome = getActiveBiome();
-    console.log(`✓ Bioma activo: ${activeBiome.name || "Unknown"}`);
-    
     cells = createCells(activeBiome, sharedNoiseGenerator);
     
     treeInstances = createTreeInstances(cells, activeBiome);
@@ -299,7 +198,6 @@ async function main() {
       centerZ: boardBounds.centerZ,
       radius: hexagonRadius
     };
-    console.log(`✓ Plano hexagonal de fondo del board creado: radio=${hexagonRadius.toFixed(2)}`);
 
     // Generar celdas hexagonales para el fondo (altura fija)
     // Pasar todas las celdas de los tiles para calcular proximidad
@@ -324,7 +222,6 @@ async function main() {
   let sheepMesh = null;
 
   try {
-    console.log('Cargando modelo de oveja...');
     const sheepData = await loadObjWithMtl(gl, "objects/Sheep.obj", "objects/Sheep.mtl");
     if (!sheepData || !sheepData.white || !sheepData.black) {
       throw new Error('El modelo de oveja no se cargó correctamente (estructura de datos inválida)');
@@ -333,10 +230,8 @@ async function main() {
       white: sheepData.white,
       black: sheepData.black
     };
-    console.log(`✓ Modelo de oveja cargado: White=${sheepData.white.indexCount / 3} triángulos, Black=${sheepData.black.indexCount / 3} triángulos`);
   } catch (error) {
-    console.error(`❌ ERROR al cargar el modelo de oveja: ${error.message}`);
-    console.warn('  Continuando sin ovejas...');
+    console.error(`Error al cargar el modelo de oveja: ${error.message}`);
     sheepMesh = null;
   }
   
@@ -654,9 +549,6 @@ async function main() {
       requestAnimationFrame(cameraUpdateLoop);
     }
     cameraUpdateLoop();
-    
-    console.log('✓ Controles de cámara activados para Board Mode');
-    console.log('  W/S/Arrows: Mover | Q/E: Elevar/Bajar | Rueda mouse/+/−: Zoom | Click+Arrastre: Rotar vista | R: Reset');
   }
   
   // Función para redibujar la escena
@@ -691,11 +583,8 @@ async function main() {
     
     // Dibujar árboles
     if (treeInstances.length > 0) {
-      const treeCrownColor = (VIEW_MODE === "board" || activeBiome.name === "Forest") ? 
-        (activeBiome.name === "Forest" ? TREE_CROWN_COLOR_FOREST : TREE_CROWN_COLOR_GRASS) : 
-        TREE_CROWN_COLOR_GRASS;
       for (const tree of treeInstances) {
-        drawTreeWithColor(gl, program, treeMesh, tree.modelMatrix, viewMatrix, projectionMatrix, treeCrownColor);
+        drawTreeWithColor(gl, program, treeMesh, tree.modelMatrix, viewMatrix, projectionMatrix, TREE_CROWN_COLOR);
       }
     }
     
@@ -741,8 +630,6 @@ async function main() {
   
   // Paso 11: Renderizar la escena inicial
   renderScene();
-
-  console.log('✓ ¡Aplicación iniciada correctamente!');
 }
 
 // Ejecuta la función principal cuando la página y todos los scripts están cargados
