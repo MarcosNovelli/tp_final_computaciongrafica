@@ -105,7 +105,8 @@ float heightFieldDesert(vec2 p, float hexR, out float mask, bool highQuality, ve
 
   // Dunas suaves
   float dunes = 0.0;
-  dunes += sin(qn.x * 4.0 + qn.y * 2.0 + uTime * 0.1) * 0.15;
+  // Removed time term so dunes stay static
+  dunes += sin(qn.x * 4.0 + qn.y * 2.0) * 0.15;
   dunes += sin(qn.x * 8.0 - qn.y * 5.0) * 0.08;
   float f = highQuality ? fbm(qn * 3.0) : fbmLow(qn * 3.0);
   dunes += f * 0.1;
