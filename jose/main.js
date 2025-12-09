@@ -27,6 +27,96 @@
  */
 
 /**
+ * Genera celdas hexagonales para rellenar un hexágono grande.
+ * Se usa para el fondo del board, con altura fija y color fijo.
+ *
+ * @param {number} bigHexRadius - Radio del hexágono grande (distancia centro-vértice) en unidades de mundo
+ * @param {number} centerX - Posición X del centro del hexágono
+ * @param {number} centerZ - Posición Z del centro del hexágono
+ * @param {number} cellHeight - Altura de cada celda
+ * @param {Array} color - Color [r,g,b] de las celdas
+ * @returns {Array} celdas generadas
+ */
+function createBackgroundHexCells(bigHexRadius, centerX, centerZ, cellHeight = 1.0, defaultColor = [0.1, 0.1, 0.1], tileCells = []) {
+  const cells = [];
+  const size = HEX_RADIUS_WORLD;
+
+  // Aproximar radio axial; un paso axial desplaza ~1.5*size en X.
+  const axialRadius = Math.ceil(bigHexRadius / (size * 1.5));
+
+  let nearCellsCount = 0;
+  let farCellsCount = 0;
+
+  for (let q = -axialRadius; q <= axialRadius; q++) {
+    for (let r = -axialRadius; r <= axialRadius; r++) {
+      if (hexDistance(0, 0, q, r) > axialRadius) continue;
+
+      const { x, z } = hexToPixel3D(q, r, size);
+      const worldX = x + centerX;
+      const worldZ = z + centerZ;
+
+      const dist = Math.sqrt(Math.pow(worldX - centerX, 2) + Math.pow(worldZ - centerZ, 2));
+      if (dist > bigHexRadius + size * 0.1) continue;
+
+      // Calcular la distancia mínima desde esta celda del board a cualquier celda de tile
+      let minDistanceToTile = Infinity;
+      for (const tileCell of tileCells) {
+        const distance = Math.sqrt(
+          Math.pow(worldX - tileCell.worldX, 2) + 
+          Math.pow(worldZ - tileCell.worldZ, 2)
+        );
+        minDistanceToTile = Math.min(minDistanceToTile, distance);
+      }
+
+      // Decidir el color según la proximidad
+      let cellColor;
+      if (minDistanceToTile <= BOARD_CELL_PROXIMITY_DISTANCE) {
+        // Celda cerca de un tile: elegir entre color base o variaciones según probabilidades
+        const rand = Math.random();
+        if (rand < BOARD_COLOR_VARIATION_1_PROBABILITY) {
+          // Usar primera variación
+          cellColor = BOARD_BACKGROUND_COLOR_VARIATION_1;
+        } else if (rand < BOARD_COLOR_VARIATION_1_PROBABILITY + BOARD_COLOR_VARIATION_2_PROBABILITY) {
+          // Usar segunda variación
+          cellColor = BOARD_BACKGROUND_COLOR_VARIATION_2;
+        } else {
+          // Usar color base (el más común)
+          cellColor = BOARD_BACKGROUND_COLOR_NEAR;
+        }
+        nearCellsCount++;
+      } else {
+        cellColor = defaultColor;
+        farCellsCount++;
+      }
+
+      // Calcular altura según la distancia al tile más cercano
+      let cellHeightByDistance;
+      if (minDistanceToTile <= 1.5) {
+        cellHeightByDistance = 0.85;
+      } else if (minDistanceToTile <= 2.1) {
+        cellHeightByDistance = 0.6;
+      } else if (minDistanceToTile <= 2.7) {
+        cellHeightByDistance = 0.3;
+      } else {
+        cellHeightByDistance = 0.2; // Altura por defecto para celdas lejanas
+      }
+
+      cells.push({
+        q,
+        r,
+        worldX,
+        worldZ,
+        height: cellHeightByDistance,
+        color: cellColor
+      });
+    }
+  }
+
+  console.log(`✓ Fondo hexagonal: ${cells.length} celdas generadas (${nearCellsCount} cerca de tiles, ${farCellsCount} lejanas), radio=${bigHexRadius.toFixed(2)}`);
+  return cells;
+}
+
+/**
  * Función principal que inicializa la aplicación y dibuja una grilla de prismas hexagonales.
  */
 async function main() {
@@ -172,6 +262,57 @@ async function main() {
   // Paso 6: Crear buffers separados para posiciones y normales
   const positionBuffer = createBuffer(gl, prismData.positions);
   const normalBuffer = createBuffer(gl, prismData.normals);
+  
+  // Paso 6b: Crear plano hexagonal de fondo para el board (solo en modo board)
+  let boardBackgroundPlane = null;
+  let boardBackgroundCells = [];
+  if (VIEW_MODE === "board" && board) {
+    const boardBounds = board.getBoardBounds();
+    const tilesInfo = board.getTilesInfo();
+    
+    // Calcular el radio del hexágono necesario para cubrir todos los tiles
+    // El radio debe ser la distancia máxima desde el centro del board hasta cualquier punto de los tiles
+    const sqrt3 = Math.sqrt(3);
+    const tileRadius = HEX_RADIUS_WORLD * sqrt3 * GRID_RADIUS + HEX_RADIUS_WORLD;
+    
+    // Calcular la distancia máxima desde el centro del board hasta el borde más lejano de cualquier tile
+    let maxDistanceFromCenter = 0;
+    for (const tileInfo of tilesInfo) {
+      const distanceFromCenter = Math.sqrt(
+        Math.pow(tileInfo.x - boardBounds.centerX, 2) + 
+        Math.pow(tileInfo.z - boardBounds.centerZ, 2)
+      );
+      // Agregar el radio del tile para incluir todo el tile
+      const totalDistance = distanceFromCenter + tileRadius;
+      maxDistanceFromCenter = Math.max(maxDistanceFromCenter, totalDistance);
+    }
+    
+    // Usar esta distancia como radio del círculo (sin margen adicional para cubrir exactamente)
+    const hexagonRadius = maxDistanceFromCenter * BOARD_CIRCLE_SCALE;
+    
+    const planeData = createHexagonPlaneData(hexagonRadius, -0.1); // Ligeramente debajo del terreno
+    
+    boardBackgroundPlane = {
+      positionBuffer: createBuffer(gl, planeData.positions),
+      normalBuffer: createBuffer(gl, planeData.normals),
+      centerX: boardBounds.centerX,
+      centerZ: boardBounds.centerZ,
+      radius: hexagonRadius
+    };
+    console.log(`✓ Plano hexagonal de fondo del board creado: radio=${hexagonRadius.toFixed(2)}`);
+
+    // Generar celdas hexagonales para el fondo (altura fija)
+    // Pasar todas las celdas de los tiles para calcular proximidad
+    const allTileCells = board.getAllCells();
+    boardBackgroundCells = createBackgroundHexCells(
+      hexagonRadius, 
+      boardBounds.centerX, 
+      boardBounds.centerZ, 
+      BOARD_HEXAGON_CELL_HEIGHT, 
+      BOARD_BACKGROUND_COLOR,
+      allTileCells // Pasar celdas de tiles para calcular proximidad
+    );
+  }
 
   // Paso 7: Crear mesh del árbol programáticamente
   const treeMesh = createTreeMesh(gl);
@@ -227,13 +368,17 @@ async function main() {
   if (VIEW_MODE === "board") {
     const boardSize = board ? board.getBoardSize() : { 
       width: 2 * 2 * GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3) * 2,
-      height: 2 * 2 * GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3) * 2
+      height: 2 * 2 * GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3) * 2,
+      centerX: 0,
+      centerZ: 0
     };
     terrainSize = Math.max(boardSize.width, boardSize.height) + GRID_RADIUS * HEX_RADIUS_WORLD * 2;
     
+    // Usar el centro del board para posicionar la cámara
+    const boardCenter = board ? board.getBoardCenter() : { x: 0, z: 0 };
     const cameraDistance = terrainSize * 1.5;
-    cameraEye = [cameraDistance * 0.35, cameraDistance * 0.35, cameraDistance * 0.35];
-    cameraCenter = [30, 0, 0];
+    cameraEye = [boardCenter.x + cameraDistance * 0.35, cameraDistance * 0.35, boardCenter.z + cameraDistance * 0.35];
+    cameraCenter = [boardCenter.x, 0, boardCenter.z];
     cameraUp = [0, 1, 0];
   } else {
     terrainSize = GRID_RADIUS * HEX_RADIUS_WORLD * Math.sqrt(3) * 2;
@@ -518,8 +663,31 @@ async function main() {
   function renderScene() {
     projectionMatrix = resizeCanvas();
     
+    // Limpiar canvas
+    clearCanvas(gl, 0.0, 0.0, 0.0, 1.0);
+    
     const cameraPosForShader = VIEW_MODE === "board" ? currentCameraEye : currentCameraEye;
-    drawHexGrid(gl, program, positionBuffer, normalBuffer, webgl.canvas, cells, HEX_RADIUS_WORLD, viewMatrix, projectionMatrix, cameraPosForShader);
+    
+    // Dibujar fondo hexagonal del board primero (solo en modo board, para que quede detrás de todo)
+    if (VIEW_MODE === "board" && boardBackgroundPlane) {
+      gl.useProgram(program);
+      // Renderizar las celdas del fondo como "hexagoncitos" de altura fija
+      for (const cell of boardBackgroundCells) {
+        drawHexagonAt(
+          gl, program,
+          positionBuffer, normalBuffer,
+          cell.worldX, 0, cell.worldZ,
+          cell.height,
+          cell.color,
+          viewMatrix, projectionMatrix,
+          false,
+          cameraPosForShader
+        );
+      }
+    }
+    
+    // Dibujar hex grid (skipClear=true porque ya limpiamos arriba)
+    drawHexGrid(gl, program, positionBuffer, normalBuffer, webgl.canvas, cells, HEX_RADIUS_WORLD, viewMatrix, projectionMatrix, cameraPosForShader, true);
     
     // Dibujar árboles
     if (treeInstances.length > 0) {

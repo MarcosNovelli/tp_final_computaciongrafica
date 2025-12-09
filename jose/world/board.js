@@ -70,6 +70,19 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
   const tiles = [];
   let generated = false;
   
+  // Board bounds: el área exacta que contiene todos los tiles y el spacing entre ellos
+  // Se calcula después de generar todos los tiles
+  let boardBounds = {
+    minX: 0,
+    maxX: 0,
+    minZ: 0,
+    maxZ: 0,
+    centerX: 0,
+    centerZ: 0,
+    width: 0,
+    height: 0
+  };
+  
   /**
    * Obtiene un bioma por su nombre.
    * 
@@ -317,7 +330,70 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
     }
     
     generated = true;
+    // Calcular los bounds del board (área exacta que contiene todos los tiles + spacing)
+    calculateBoardBounds();
+    
+    generated = true;
     console.log(`✓ Tablero generado: ${tiles.length} tiles creados`);
+    console.log(`✓ Board bounds: width=${boardBounds.width.toFixed(2)}, height=${boardBounds.height.toFixed(2)}, center=(${boardBounds.centerX.toFixed(2)}, ${boardBounds.centerZ.toFixed(2)})`);
+  }
+  
+  /**
+   * Calcula los bounds del board: el área exacta que contiene todos los tiles
+   * y el spacing entre ellos (los "black channels" en la imagen).
+   * 
+   * Este método calcula el bounding box mínimo que encierra completamente
+   * todos los tiles, incluyendo el espacio entre ellos.
+   */
+  function calculateBoardBounds() {
+    if (tiles.length === 0) {
+      boardBounds = {
+        minX: 0,
+        maxX: 0,
+        minZ: 0,
+        maxZ: 0,
+        centerX: 0,
+        centerZ: 0,
+        width: 0,
+        height: 0
+      };
+      return;
+    }
+    
+    // Calcular el radio de un tile (distancia del centro al borde más lejano)
+    const sqrt3 = Math.sqrt(3);
+    const tileRadius = HEX_RADIUS_WORLD * sqrt3 * GRID_RADIUS + HEX_RADIUS_WORLD;
+    
+    // Encontrar los límites extremos considerando el radio de cada tile
+    let minX = Infinity, maxX = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+    
+    for (const tileData of tiles) {
+      const offset = tileData.tile.getOffset();
+      
+      // El borde del tile está a tileRadius unidades del centro
+      minX = Math.min(minX, offset.x - tileRadius);
+      maxX = Math.max(maxX, offset.x + tileRadius);
+      minZ = Math.min(minZ, offset.z - tileRadius);
+      maxZ = Math.max(maxZ, offset.z + tileRadius);
+    }
+    
+    // Calcular dimensiones y centro
+    const width = maxX - minX;
+    const height = maxZ - minZ;
+    const centerX = (minX + maxX) / 2;
+    const centerZ = (minZ + maxZ) / 2;
+    
+    boardBounds = {
+      minX: minX,
+      maxX: maxX,
+      minZ: minZ,
+      maxZ: maxZ,
+      centerX: centerX,
+      centerZ: centerZ,
+      width: width,
+      height: height
+    };
   }
   
   /**
@@ -388,39 +464,64 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
   }
   
   /**
-   * Retorna el tamaño del tablero en unidades de mundo.
-   * Calcula un bounding box que contiene todos los tiles.
-   * Útil para calcular la posición inicial de la cámara.
+   * Retorna el tamaño y bounds del tablero en unidades de mundo.
+   * El board representa el área exacta que contiene todos los tiles
+   * y el spacing entre ellos (los "black channels" en la imagen).
    * 
-   * @returns {Object} Objeto con { width, height } en unidades de mundo
+   * @returns {Object} Objeto con:
+   *   - width: Ancho total del board
+   *   - height: Alto total del board
+   *   - minX, maxX, minZ, maxZ: Límites del bounding box
+   *   - centerX, centerZ: Centro del board
    */
   function getBoardSize() {
-    if (!generated || tiles.length === 0) {
-      // Si no hay tiles generados, retornar tamaño por defecto
-      return { width: 100, height: 100 };
+    if (!generated) {
+      console.warn('Board no generado, llamando generate() automáticamente');
+      generate();
     }
     
-    // Calcular bounding box de todos los tiles
-    let minX = Infinity, maxX = -Infinity;
-    let minZ = Infinity, maxZ = -Infinity;
-    
-    for (const tileData of tiles) {
-      const offset = tileData.tile.getOffset();
-      // Aproximar el radio de un tile (distancia del centro al borde)
-      // Cada tile tiene GRID_RADIUS hexágonos desde el centro
-      const sqrt3 = Math.sqrt(3);
-      const tileRadius = HEX_RADIUS_WORLD * sqrt3 * GRID_RADIUS + HEX_RADIUS_WORLD;
-      
-      minX = Math.min(minX, offset.x - tileRadius);
-      maxX = Math.max(maxX, offset.x + tileRadius);
-      minZ = Math.min(minZ, offset.z - tileRadius);
-      maxZ = Math.max(maxZ, offset.z + tileRadius);
+    return {
+      width: boardBounds.width,
+      height: boardBounds.height,
+      minX: boardBounds.minX,
+      maxX: boardBounds.maxX,
+      minZ: boardBounds.minZ,
+      maxZ: boardBounds.maxZ,
+      centerX: boardBounds.centerX,
+      centerZ: boardBounds.centerZ
+    };
+  }
+  
+  /**
+   * Retorna el centro del board en coordenadas del mundo.
+   * Útil para posicionar la cámara o otros elementos relativos al board.
+   * 
+   * @returns {Object} Objeto con { x, z } del centro
+   */
+  function getBoardCenter() {
+    if (!generated) {
+      console.warn('Board no generado, llamando generate() automáticamente');
+      generate();
     }
     
-    const width = maxX - minX;
-    const height = maxZ - minZ;
+    return {
+      x: boardBounds.centerX,
+      z: boardBounds.centerZ
+    };
+  }
+  
+  /**
+   * Retorna los bounds completos del board.
+   * 
+   * @returns {Object} Objeto con { minX, maxX, minZ, maxZ, centerX, centerZ, width, height }
+   */
+  function getBoardBounds() {
+    if (!generated) {
+      console.warn('Board no generado, llamando generate() automáticamente');
+      generate();
+    }
     
-    return { width, height };
+    return { ...boardBounds };
   }
   
   // Retornar interfaz pública del Board
@@ -429,6 +530,8 @@ function createBoard(tilesConfig = [], baseNoiseGenerator = null) {
     getAllCells: getAllCells,
     getAllObjectInstances: getAllObjectInstances,
     getTilesInfo: getTilesInfo,
-    getBoardSize: getBoardSize
+    getBoardSize: getBoardSize,
+    getBoardCenter: getBoardCenter,
+    getBoardBounds: getBoardBounds
   };
 }

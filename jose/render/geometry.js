@@ -120,3 +120,112 @@ function createHexagonPrismData(radius = HEX_RADIUS_WORLD, height = 1.0) {
   };
 }
 
+/**
+ * Crea los datos de un plano horizontal (rectángulo) con normales.
+ * Útil para crear un fondo/base para el board.
+ * 
+ * @param {number} width - Ancho del plano (eje X)
+ * @param {number} height - Alto del plano (eje Z)
+ * @param {number} yPosition - Posición Y del plano (normalmente 0 o negativo)
+ * @returns {Object} Objeto con { positions, normals } como Float32Array
+ */
+function createPlaneData(width, height, yPosition = 0.0) {
+  const positions = [];
+  const normals = [];
+  
+  // El plano está en el plano XZ, normal apunta hacia arriba (Y+)
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+  
+  // Definir los 4 vértices del plano
+  // Vértices en orden: bottom-left, bottom-right, top-left, top-right
+  const bottomLeft = [-halfWidth, yPosition, -halfHeight];
+  const bottomRight = [halfWidth, yPosition, -halfHeight];
+  const topLeft = [-halfWidth, yPosition, halfHeight];
+  const topRight = [halfWidth, yPosition, halfHeight];
+  
+  // Normal apunta hacia arriba
+  const normal = [0, 1, 0];
+  
+  // Primer triángulo: bottom-left, top-left, bottom-right
+  positions.push(
+    bottomLeft[0], bottomLeft[1], bottomLeft[2],
+    topLeft[0], topLeft[1], topLeft[2],
+    bottomRight[0], bottomRight[1], bottomRight[2]
+  );
+  normals.push(normal[0], normal[1], normal[2]);
+  normals.push(normal[0], normal[1], normal[2]);
+  normals.push(normal[0], normal[1], normal[2]);
+  
+  // Segundo triángulo: top-left, top-right, bottom-right
+  positions.push(
+    topLeft[0], topLeft[1], topLeft[2],
+    topRight[0], topRight[1], topRight[2],
+    bottomRight[0], bottomRight[1], bottomRight[2]
+  );
+  normals.push(normal[0], normal[1], normal[2]);
+  normals.push(normal[0], normal[1], normal[2]);
+  normals.push(normal[0], normal[1], normal[2]);
+  
+  return {
+    positions: new Float32Array(positions),
+    normals: new Float32Array(normals)
+  };
+}
+
+/**
+ * Crea los datos de un plano hexagonal horizontal con normales.
+ * Útil para crear un fondo/base hexagonal para el board.
+ * 
+ * @param {number} radius - Radio del hexágono (distancia del centro a un vértice)
+ * @param {number} yPosition - Posición Y del plano (normalmente 0 o negativo)
+ * @returns {Object} Objeto con { positions, normals } como Float32Array
+ */
+function createHexagonPlaneData(radius, yPosition = 0.0) {
+  const positions = [];
+  const normals = [];
+  
+  // El hexágono está en el plano XZ, normal apunta hacia arriba (Y+)
+  const numVertices = 6;
+  const angleStep = (2 * Math.PI) / numVertices;
+  const angleOffset = 0; // Empezar desde el vértice derecho (0 grados)
+  
+  const hexVertices = [];
+  
+  // Generar los 6 vértices del hexágono
+  for (let i = 0; i < numVertices; i++) {
+    const angle = i * angleStep + angleOffset;
+    const x = radius * Math.cos(angle);
+    const z = radius * Math.sin(angle);
+    hexVertices.push([x, yPosition, z]);
+  }
+  
+  // Normal apunta hacia arriba
+  const normal = [0, 1, 0];
+  
+  // Dividir el hexágono en triángulos desde el centro
+  const center = [0, yPosition, 0];
+  
+  for (let i = 0; i < numVertices; i++) {
+    const v1 = center;
+    const v2 = hexVertices[i];
+    const v3 = hexVertices[(i + 1) % numVertices];
+    
+    // Cada triángulo: centro, vértice actual, siguiente vértice
+    positions.push(
+      v1[0], v1[1], v1[2],
+      v2[0], v2[1], v2[2],
+      v3[0], v3[1], v3[2]
+    );
+    
+    normals.push(normal[0], normal[1], normal[2]);
+    normals.push(normal[0], normal[1], normal[2]);
+    normals.push(normal[0], normal[1], normal[2]);
+  }
+  
+  return {
+    positions: new Float32Array(positions),
+    normals: new Float32Array(normals)
+  };
+}
+

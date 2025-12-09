@@ -156,6 +156,23 @@ function scaleMat4(x, y, z) {
 }
 
 /**
+ * Crea una matriz de rotación 4x4 alrededor del eje Y (vertical).
+ * @param {number} angleInDegrees - Ángulo en grados (sentido antihorario visto desde arriba).
+ */
+function rotateYMat4(angleInDegrees) {
+  const angleInRadians = angleInDegrees * Math.PI / 180.0;
+  const c = Math.cos(angleInRadians);
+  const s = Math.sin(angleInRadians);
+
+  const out = identityMat4();
+  out[0] = c;
+  out[2] = s;
+  out[8] = -s;
+  out[10] = c;
+  return out;
+}
+
+/**
  * Transpone una matriz 4x4.
  */
 function transposeMat4(m) {

@@ -50,9 +50,12 @@ function drawHexagonAt(gl, program, positionBuffer, normalBuffer, x, y, z, heigh
 
 /**
  * Dibuja una grilla de prismas hexagonales en 3D con alturas variables por celda.
+ * @param {boolean} skipClear - Si es true, no limpia el canvas (útil para dibujar después de otros elementos)
  */
-function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, hexRadius, viewMatrix, projectionMatrix, cameraPos = null) {
-  clearCanvas(gl, 0.0, 0.0, 0.0, 1.0);
+function drawHexGrid(gl, program, positionBuffer, normalBuffer, canvas, cells, hexRadius, viewMatrix, projectionMatrix, cameraPos = null, skipClear = false) {
+  if (!skipClear) {
+    clearCanvas(gl, 0.0, 0.0, 0.0, 1.0);
+  }
   gl.useProgram(program);
   
   let finalViewMatrix = viewMatrix;
@@ -181,5 +184,54 @@ function drawTreeWithColor(gl, program, treeMesh, modelMatrix, viewMatrix, proje
     crownColor,
     treeMesh.crownIndexOffset * 2
   );
+}
+
+/**
+ * Dibuja un plano horizontal (usando drawArrays, sin índices).
+ * Útil para dibujar el fondo del board (rectangular o hexagonal).
+ * 
+ * @param {WebGLRenderingContext} gl - Contexto WebGL
+ * @param {WebGLProgram} program - Programa de shaders
+ * @param {WebGLBuffer} positionBuffer - Buffer de posiciones del plano
+ * @param {WebGLBuffer} normalBuffer - Buffer de normales del plano
+ * @param {Array} center - [x, y, z] del centro del plano
+ * @param {Array} color - [r, g, b] color del plano
+ * @param {Float32Array} viewMatrix - Matriz de vista
+ * @param {Float32Array} projectionMatrix - Matriz de proyección
+ * @param {number} vertexCount - Número de vértices a dibujar (default: 6 para rectángulo, 18 para hexágono)
+ * @param {number} rotationAngle - Ángulo en grados para rotar alrededor de Y
+ */
+function drawPlane(gl, program, positionBuffer, normalBuffer, center, color, viewMatrix, projectionMatrix, vertexCount = 6, rotationAngle = 0) {
+  const rotationMatrix = rotateYMat4(rotationAngle);
+  const translationMatrix = translateMat4(center[0], center[1], center[2]);
+  const modelMatrix = multiplyMat4(translationMatrix, rotationMatrix);
+  const normalMatrix = calculateNormalMatrix(modelMatrix);
+  
+  const modelLocation = gl.getUniformLocation(program, 'u_model');
+  const viewLocation = gl.getUniformLocation(program, 'u_view');
+  const projectionLocation = gl.getUniformLocation(program, 'u_projection');
+  const normalMatrixLocation = gl.getUniformLocation(program, 'u_normalMatrix');
+  const colorLocation = gl.getUniformLocation(program, 'u_color');
+  const isWaterLocation = gl.getUniformLocation(program, 'uIsWater');
+  const noLightingLocation = gl.getUniformLocation(program, 'uNoLighting');
+  
+  gl.uniformMatrix4fv(modelLocation, false, modelMatrix);
+  gl.uniformMatrix4fv(viewLocation, false, viewMatrix);
+  gl.uniformMatrix4fv(projectionLocation, false, projectionMatrix);
+  gl.uniformMatrix4fv(normalMatrixLocation, false, normalMatrix);
+  
+  gl.uniform3f(colorLocation, color[0], color[1], color[2]);
+  gl.uniform1f(isWaterLocation, 0.0);
+  
+  if (noLightingLocation) {
+    // Desactivar iluminación para el fondo (opcional, puedes cambiarlo)
+    gl.uniform1f(noLightingLocation, 0.0);
+  }
+  
+  setupAttribute(gl, program, 'a_position', positionBuffer, 3);
+  setupAttribute(gl, program, 'a_normal', normalBuffer, 3);
+  
+  // Dibujar el plano (6 vértices para rectángulo, 18 para hexágono)
+  gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
 }
 
