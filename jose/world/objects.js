@@ -435,7 +435,7 @@ function createSheepInstances(cells, targetBiome = null) {
       console.log(`    - Posición oveja: (${posX.toFixed(6)}, ${posY.toFixed(6)}, ${posZ.toFixed(6)})`);
     }
     
-    const scale = 1.0;
+    const scale = 7;
     
     const scaleMatrix = scaleMat4(scale, scale, scale);
     const rotationY = 0;

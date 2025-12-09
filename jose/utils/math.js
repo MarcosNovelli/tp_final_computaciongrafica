@@ -11,18 +11,38 @@
  * Multiplica dos matrices 4x4.
  */
 function multiplyMat4(a, b) {
+  // Column-major multiplication (a * b) compatible with WebGL uniforms.
   const out = new Float32Array(16);
-  
-  for (let i = 0; i < 4; i++) {
-    for (let j = 0; j < 4; j++) {
-      out[i * 4 + j] = 
-        a[i * 4 + 0] * b[0 * 4 + j] +
-        a[i * 4 + 1] * b[1 * 4 + j] +
-        a[i * 4 + 2] * b[2 * 4 + j] +
-        a[i * 4 + 3] * b[3 * 4 + j];
-    }
-  }
-  
+
+  const a00 = a[0],  a01 = a[1],  a02 = a[2],  a03 = a[3];
+  const a10 = a[4],  a11 = a[5],  a12 = a[6],  a13 = a[7];
+  const a20 = a[8],  a21 = a[9],  a22 = a[10], a23 = a[11];
+  const a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+
+  let b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3];
+  out[0]  = a00 * b0 + a10 * b1 + a20 * b2 + a30 * b3;
+  out[1]  = a01 * b0 + a11 * b1 + a21 * b2 + a31 * b3;
+  out[2]  = a02 * b0 + a12 * b1 + a22 * b2 + a32 * b3;
+  out[3]  = a03 * b0 + a13 * b1 + a23 * b2 + a33 * b3;
+
+  b0 = b[4]; b1 = b[5]; b2 = b[6]; b3 = b[7];
+  out[4]  = a00 * b0 + a10 * b1 + a20 * b2 + a30 * b3;
+  out[5]  = a01 * b0 + a11 * b1 + a21 * b2 + a31 * b3;
+  out[6]  = a02 * b0 + a12 * b1 + a22 * b2 + a32 * b3;
+  out[7]  = a03 * b0 + a13 * b1 + a23 * b2 + a33 * b3;
+
+  b0 = b[8]; b1 = b[9]; b2 = b[10]; b3 = b[11];
+  out[8]  = a00 * b0 + a10 * b1 + a20 * b2 + a30 * b3;
+  out[9]  = a01 * b0 + a11 * b1 + a21 * b2 + a31 * b3;
+  out[10] = a02 * b0 + a12 * b1 + a22 * b2 + a32 * b3;
+  out[11] = a03 * b0 + a13 * b1 + a23 * b2 + a33 * b3;
+
+  b0 = b[12]; b1 = b[13]; b2 = b[14]; b3 = b[15];
+  out[12] = a00 * b0 + a10 * b1 + a20 * b2 + a30 * b3;
+  out[13] = a01 * b0 + a11 * b1 + a21 * b2 + a31 * b3;
+  out[14] = a02 * b0 + a12 * b1 + a22 * b2 + a32 * b3;
+  out[15] = a03 * b0 + a13 * b1 + a23 * b2 + a33 * b3;
+
   return out;
 }
 
@@ -238,4 +258,3 @@ function randomInRange(min, max) {
 function clamp01(v) {
   return Math.max(0, Math.min(1, v));
 }
-
