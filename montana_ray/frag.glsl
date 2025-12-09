@@ -348,7 +348,7 @@ float map(vec3 p) {
     vec2 noiseOffset = hash(hex.id + vec2(uSeed * 0.1)) * vec2(100.0) + vec2(uSeed);
     // Add time for desert dunes if needed, or keep static. Keep static/session based.
     
-    float h = sampleHeight(localP.xz, mask, biome, false, tileBiome, noiseOffset) * uHeightScale;
+    float h = sampleHeight(localP.xz, mask, biome, true, tileBiome, noiseOffset) * uHeightScale;
     
     // 2. Define Prism Volume (Tapered)
     float slope = 0.4;
@@ -393,7 +393,7 @@ vec3 intersectTerrain(vec3 ro, vec3 rd, float maxDist) {
             
             vec2 noiseOffset = hash(hex.id + vec2(uSeed * 0.1)) * vec2(100.0) + vec2(uSeed);
             
-            sampleHeight(localP.xz, mask, biome, false, tileBiome, noiseOffset); 
+            sampleHeight(localP.xz, mask, biome, true, tileBiome, noiseOffset); 
             return vec3(t, mask, biome);
         }
         
@@ -605,6 +605,7 @@ void main() {
     
     if (t > 0.0) {
         vec3 p = rayOrigin + rayDir * t;
+        float maxShadowDist = uHexRadius * (1.6 * (uGridRadius + 1.2)) + 1.0;
         
         if (hitWater) {
              float chop;
@@ -623,7 +624,7 @@ void main() {
              if (insideGrid) {
                  tileBiome = getTileBiome(waterHex.id);
                  vec2 noiseOffset = hash(waterHex.id + vec2(uSeed * 0.1)) * vec2(100.0) + vec2(uSeed);
-                 groundH = sampleHeight(waterHex.uv, dummyMask, dummyBiome, false, tileBiome, noiseOffset) * uHeightScale;
+                 groundH = sampleHeight(waterHex.uv, dummyMask, dummyBiome, true, tileBiome, noiseOffset) * uHeightScale;
              }
              float depth = clamp((uWaterLevel - groundH) * 0.32, 0.0, 1.0);
              
@@ -643,7 +644,7 @@ void main() {
              vec3 V = normalize(uCamPos - p);
              vec3 H = normalize(L + V);
              float diff = max(dot(n, L), 0.0);
-             float shadow = softShadow(p + n * uEpsilon * 6.0, L, 40.0);
+             float shadow = softShadow(p + n * uEpsilon * 6.0, L, maxShadowDist);
              float fresnel = pow(1.0 - max(dot(V, n), 0.0), 4.0);
              
              vec3 skyRef = colorCielo(reflect(-V, n));
@@ -654,8 +655,8 @@ void main() {
              vec3 absorption = mix(shallowColor, deepColor, depth * 0.45 + 0.08);
              vec3 foamColor = vec3(0.55, 0.66, 0.72);
              
-             float spec = pow(max(dot(n, H), 0.0), 160.0) * (0.25 + 0.75 * shadow);
-             float subsurface = exp(-depth * 0.8) * (0.7 + 0.3 * diff * shadow);
+             float spec = pow(max(dot(n, H), 0.0), 160.0) * shadow;
+             float subsurface = exp(-depth * 0.8) * (0.35 + 0.65 * diff * shadow);
              
              vec3 body = absorption * subsurface;
              body = mix(body, foamColor, foamStrength);
@@ -724,13 +725,14 @@ void main() {
             float rough = mix(0.35, 1.0, surfSlope);
             float specExp = mix(22.0, 46.0, 1.0 - rough);
             float spec = pow(max(dot(n, H), 0.0), specExp) * mix(0.15, 0.4, 1.0 - rough);
-            float shadow = softShadow(p + n * uEpsilon * 6.0, L, 40.0);
+            float shadow = softShadow(p + n * uEpsilon * 6.0, L, maxShadowDist);
             diff *= shadow;
             spec *= shadow;
             
             vec3 ambient = vec3(0.12, 0.14, 0.16);
-            vec3 skyBounce = colorCielo(L) * clamp(0.15 + 0.45 * n.y, 0.0, 0.55);
-            float rim = pow(1.0 - max(dot(n, V), 0.0), 3.0);
+            float shadowSky = mix(1.0, shadow, 0.7); // keep some sky fill when fully shadowed
+            vec3 skyBounce = colorCielo(L) * clamp(0.15 + 0.45 * n.y, 0.0, 0.55) * shadowSky;
+            float rim = pow(1.0 - max(dot(n, V), 0.0), 3.0) * shadowSky;
             color = baseColor * (ambient + skyBounce + diff * 1.2) + spec + baseColor * rim * 0.15;
         }
     } else {
