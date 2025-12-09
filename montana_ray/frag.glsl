@@ -71,6 +71,7 @@ float sdHex(vec2 p, float r) {
 const float uHeightScale = 2.8;
 const float uHexRadius = 2.35;
 const float uGap = 0.05; // Gap between tiles
+const float uWaterLevel = -0.05; // Global ocean height
 
 // Base height field logic
 float heightFieldBase(vec2 p, float hexR, out float mask, bool highQuality, vec2 offset) {
@@ -309,6 +310,12 @@ HexID getHex(vec2 p, float r) {
     return hx;
 }
 
+float axialDistance(vec2 id) {
+    float q = id.x;
+    float r = id.y;
+    float s = -q - r;
+    return max(max(abs(q), abs(r)), abs(s));
+}
 
 float map(vec3 p) {
     // 1. Tiling
@@ -358,11 +365,10 @@ float map(vec3 p) {
     
     float boundRadius = (uGridRadius + 0.1); 
     if (dist > boundRadius) {
-        // We are outside the valid grid.
-        // Instead of a bounding volume, we return a "Safe Step" size.
-        // Returning uHexRadius roughly ensures we don't jump over a whole tile.
-        // This is less efficient than a bounding volume but avoids "cutting" artifacts completely.
-        return uHexRadius;
+        // Outside the valid grid: use a real bounding cylinder SDF to avoid over-stepping and missing the terrain
+        float worldBound = uHexRadius * (1.6 * (uGridRadius + 1.2));
+        float d_cyl = length(p.xz) - worldBound;
+        return max(d_cyl, 0.15);
     }
     
     return d_terrain;
@@ -551,6 +557,24 @@ vec3 colorCielo(vec3 dir){
     return mix(bottom, top, t);
 }
 
+// Simple gerstner-ish waves for the ocean plane
+float waterHeight(vec2 p) {
+    float h = 0.0;
+    h += sin(dot(p, normalize(vec2(1.2, 0.9))) * 2.4 + uTime * 0.9) * 0.04;
+    h += sin(dot(p, normalize(vec2(-0.7, 1.3))) * 3.1 + uTime * 1.35) * 0.03;
+    h += fbm(p * 1.8 + uTime * 0.15) * 0.02;
+    return h;
+}
+
+vec3 waterNormal(vec2 p, out float chop) {
+    float e = 0.08;
+    float h = waterHeight(p);
+    float hx = waterHeight(p + vec2(e, 0.0)) - h;
+    float hz = waterHeight(p + vec2(0.0, e)) - h;
+    chop = clamp((abs(hx) + abs(hz)) * 14.0, 0.0, 1.0);
+    return normalize(vec3(-hx / e, 1.0, -hz / e));
+}
+
 void main() {
     float aspect = uResolution.x / uResolution.y;
     vec2 ndc = vec2(vUV * 2.0 - 1.0);
@@ -566,8 +590,7 @@ void main() {
     float biome = res.z;
     
     // Water Plane Logic
-    float waterLevel = -0.05; // Raised water to make tile sit deeper
-    float tWater = (waterLevel - rayOrigin.y) / rayDir.y;
+    float tWater = (uWaterLevel - rayOrigin.y) / rayDir.y;
     bool hitWater = false;
     
     if (tWater > 0.0) {
@@ -583,20 +606,60 @@ void main() {
         vec3 p = rayOrigin + rayDir * t;
         
         if (hitWater) {
-             // ... (Water logic same)
-             vec3 waterColor = vec3(0.1, 0.3, 0.5);
-             vec3 skyRef = colorCielo(reflect(rayDir, vec3(0,1,0)));
-             float wave = sin(p.x * 10.0 + uTime) * sin(p.z * 10.0 + uTime * 0.8) * 0.05;
-             vec3 n = normalize(vec3(wave, 1.0, -wave)); 
+             float chop;
+             vec3 n = waterNormal(p.xz, chop);
+             float surfaceOffset = waterHeight(p.xz);
+             p.y = uWaterLevel + surfaceOffset; // Lift the point to the displaced surface
+             
+             HexID waterHex = getHex(p.xz, uHexRadius);
+             float hexDist = axialDistance(waterHex.id);
+             bool insideGrid = hexDist <= (uGridRadius + 0.1);
+             
+             float groundH = -6.0;
+             float tileBiome = 0.0;
+             float dummyMask = 0.0;
+             float dummyBiome = 0.0;
+             if (insideGrid) {
+                 tileBiome = getTileBiome(waterHex.id);
+                 vec2 noiseOffset = hash(waterHex.id + vec2(uSeed * 0.1)) * vec2(100.0) + vec2(uSeed);
+                 groundH = sampleHeight(waterHex.uv, dummyMask, dummyBiome, false, tileBiome, noiseOffset) * uHeightScale;
+             }
+             float depth = clamp((uWaterLevel - groundH) * 0.32, 0.0, 1.0);
+             
+             vec3 terrainColor = vec3(0.0);
+             if (insideGrid) {
+                 vec3 terrainP = vec3(waterHex.uv.x, groundH, waterHex.uv.y);
+                 terrainColor = getBiomeColor(tileBiome, terrainP, vec3(0.0, 1.0, 0.0), groundH, 1.0);
+             }
+             
+             // Shore foam where the ocean meets the hex walls
+             float edge = abs(sdHex(waterHex.uv * 1.35, uHexRadius - uGap));
+             float foam = insideGrid ? (1.0 - smoothstep(0.06, 0.32, edge)) : 0.0;
+             foam *= (0.35 + 0.65 * chop);
+             float foamStrength = foam * (0.55 + 0.35 * (1.0 - depth)); // softer and fades with depth
+             
              vec3 L = normalize(uLightDir);
              vec3 V = normalize(uCamPos - p);
              vec3 H = normalize(L + V);
              float diff = max(dot(n, L), 0.0);
              float shadow = softShadow(p + n * uEpsilon * 6.0, L, 40.0);
-             float spec = pow(max(dot(n, H), 0.0), 100.0) * 0.8 * shadow;
              float fresnel = pow(1.0 - max(dot(V, n), 0.0), 4.0);
-             waterColor = mix(waterColor, skyRef, fresnel * 0.5 + 0.2);
-             color = waterColor * (0.7 + diff * shadow * 0.3) + spec;
+             
+             vec3 skyRef = colorCielo(reflect(-V, n));
+             float terrainView = insideGrid ? mix(0.5, 0.12, depth) : 0.0; // stronger in shallows
+             vec3 sceneRef = mix(skyRef, terrainColor, terrainView);
+             vec3 deepColor = vec3(0.22, 0.55, 0.62);
+             vec3 shallowColor = vec3(0.22, 0.55, 0.62);
+             vec3 absorption = mix(shallowColor, deepColor, depth * 0.45 + 0.08);
+             vec3 foamColor = vec3(0.55, 0.66, 0.72);
+             
+             float spec = pow(max(dot(n, H), 0.0), 160.0) * (0.25 + 0.75 * shadow);
+             float subsurface = exp(-depth * 0.8) * (0.7 + 0.3 * diff * shadow);
+             
+             vec3 body = absorption * subsurface;
+             body = mix(body, foamColor, foamStrength);
+             float reflectMix = fresnel * 0.75 + 0.18;
+             color = mix(body, sceneRef, reflectMix) + spec;
              
         } else {
             // Re-calculate precise height for coloring/normals
