@@ -210,35 +210,7 @@ HexID getHex(vec2 p, float r) {
     float ca = step(1.0,v);
     float cb = step(2.0,v);
     vec2  ma = step(pf,vec2(ca,cb));
-    
-    // Smoothing/rounding not needed for id, just get center
-    // Re-deriving center from IQ's method is tricky, let's use standard axial.
-    
-    // Alternative: Standard Axial Rounding
-    // x_axial = p.x * 2/3 / R
-    // z_axial = (-p.x/3 + sqrt(3)/3 * p.z) / R ... careful with orientation
-    
-    // Actually, simple tiling:
-    // The Montana hex setup seems aligned such that uHexRadius is face-to-face?
-    // sdHex uses dot(p, (0.866, 0.5)). 
-    
-    // Let's rely on standard spacing.
-    // Width = sqrt(3) * Radius. 
-    // Spacing X: sqrt(3)*R. Spacing Y: 1.5*R.
-    // Staggered rows.
-    
     float size = r;
-    float w = 1.7320508 * size; // width
-    float h = 2.0 * size;       // height (corner to corner)
-    
-    // Pointy topped or flat topped? sdHex is pointy topped (if y aligned). 
-    // .x * 0.866 + .y * 0.5 suggests it.
-    
-    // Let's brute force "infinite repetition" with modest search or use known tiling.
-    // Since we only really need neighbor checking if we cross boundaries.
-    // But since walls are solid, we can just treat each cell as an object.
-    
-    // Efficient Tiling:
     vec2 r_sz = vec2(1.7320508 * size, 3.0 * size); 
     vec2 h_sz = r_sz * 0.5;
     
@@ -247,33 +219,10 @@ HexID getHex(vec2 p, float r) {
     
     vec2 local = dot(a, a) < dot(b, b) ? a : b;
     
-    // ID?
     vec2 center = p - local;
-    //axial approx?
     
-    // Convert center to axial coords for radius check
     float q_ax = (center.x * 1.7320508/3.0 - center.y / 3.0) / size; // Approximation
     float r_ax = center.y * 2.0/3.0 / size;
-    // This assumes pointy topped.
-    // Montana sdHex: max(dot(p, (0.866, 0.5)), p.y)... this is FLAT TOPPED ?? 
-    // Wait: dot(p, (sqrt(3)/2, 1/2)). max(..., p.y).
-    // If p.y is dominant, horizontal flat top? No, p.y is distance to horizontal line.
-    // p.y = r -> flat line at y=r. 
-    // So yes, it is FLAT TOPPED geometry (rotated 30 deg compared to pointy).
-    // Flat topped: Width = 2*size. Height = sqrt(3)*size.
-    // Stagger logic:
-    // x spacing = 1.5 * size. y spacing = sqrt(3) * size?
-    
-    // Actually, let's use the layout from montana/main.js `updateTileOffsets`
-    // x += r * 1.75? No, they used a loop.
-    
-    // Let's assume standard Flat Topped logic for tiling.
-    // s = uHexRadius.
-    // grid width = 3/2 * s? No.
-    
-    // Let's use simpler logic:
-    // Just map p to "nearest hex center"
-    // https://www.redblobgames.com/grids/hexagons/#pixel-to-hex
     
     float q_ = (2.0/3.0 * p.x) / uHexRadius;
     float r_ = (-1.0/3.0 * p.x + sqrt(3.0)/3.0 * p.y) / uHexRadius;
@@ -319,47 +268,31 @@ float axialDistance(vec2 id) {
 }
 
 float map(vec3 p) {
-    // 1. Tiling
-    // If gridRadius is 0, we treat it as single tile (avoid overhead?)
-    // But consistent logic is nice.
-    
     HexID hex = getHex(p.xz, uHexRadius);
     
-    // Check Radius
-    // Hex distance from center (0,0) in axial coords is (abs(q) + abs(r) + abs(s)) / 2?
-    // or max(abs(q), abs(r), abs(s)) which is Chebyshev distance on hex grid
     float q = hex.id.x;
     float r = hex.id.y;
     float s = -q - r;
     float dist = max(max(abs(q), abs(r)), abs(s));
     
-    // Removed broken explicit return logic. Handled by bounding cylinder at end of map.
-    
-    // Local coords
     vec3 localP = vec3(hex.uv.x, p.y, hex.uv.y);
     
 
     
-    // 1. Terrain Height at local p
     float mask, biome;
     float tileBiome = getTileBiome(hex.id);
     
-    // Generate unique offset per tile based on ID
     vec2 noiseOffset = hash(hex.id + vec2(uSeed * 0.1)) * vec2(100.0) + vec2(uSeed);
-    // Add time for desert dunes if needed, or keep static. Keep static/session based.
     
     float h = sampleHeight(localP.xz, mask, biome, true, tileBiome, noiseOffset) * uHeightScale;
     
-    // 2. Define Prism Volume (Tapered)
     float slope = 0.4;
-    float hexR = max(0.0, uHexRadius - uGap - localP.y * slope); // Apply gap and clamp
-    float d_hex = sdHex(localP.xz * 1.35, hexR) / 1.35; // Local hex SDF
+    float hexR = max(0.0, uHexRadius - uGap - localP.y * slope);
+    float d_hex = sdHex(localP.xz * 1.35, hexR) / 1.35;
     d_hex *= 0.9;
     
-    // 3. Define Top Surface
     float d_top = (localP.y - h) * 0.25;
     
-    // 4. Solid Intersection
     float d_bottom = (-localP.y - 7.0); 
     
     float d_terrain = max(d_hex, max(d_top, d_bottom));
@@ -453,26 +386,8 @@ vec3 calcNormal(vec3 p) {
 }
 
 vec3 getBiomeColor(float biome, vec3 p, vec3 n, float h, float mask) {
-    // Transform P to local for coloring logic if we want consistent texturing per tile
-    HexID hex = getHex(p.xz, uHexRadius);
-    vec2 lp = hex.uv;
-    // We use p for global noise (variation) or lp for local?
-    // Let's use p (world) for noise so texture flows? 
-    // Wait, map uses cloned texture. 
-    // Let's use 'p' as is. Since we render clones, p.xz will be different,
-    // so coloring might look weird if heightField is local but coloring is global.
-    // Actually, getBiomeColor uses fbm(p.xz).
-    // If we want identical clones, use lp.
-    // If we want random variation, use p.
-    // Let's use 'lp' for structure consistency with heightfield, 
-    // but maybe offset it by ID for variation later.
-    // For now, let's use global 'p' to see if it makes tiles look distinctive.
-    
     float slope = 1.0 - clamp(n.y, 0.0, 1.0);
     vec3 base;
-    
-    // Use local p for texturing to match heightfield features
-    vec3 texP = vec3(lp.x, p.y, lp.y);
 
     if (biome < 0.5) {
         // Mountain
@@ -487,12 +402,6 @@ vec3 getBiomeColor(float biome, vec3 p, vec3 n, float h, float mask) {
         base = mix(grass, dirt, 1.0 - grassMask);
         base = mix(base, rock, rockMask);
         base = mix(base, snow, snowLine);
-        
-        // Use local p for texturing to match heightfield features
-        // Renaming 'p' to 'texP' for noise lookups would require changing all fbm(p.xz) calls.
-        // simpler: Assume p is passed as the coordinate we want to shade.
-        // If caller passes localP, it's local. If worldP, it's global.
-        
         vec2 texPos = p.xz * 2.8; 
         float grain = fbm(texPos);
         float striations = fbm(texPos * vec2(0.6, 1.4) + h * 0.5);
