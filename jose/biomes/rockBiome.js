@@ -20,24 +20,7 @@
 
 /**
  * Calcula la altura de una celda del bioma Rock con forma de montaña.
- * 
- * RESPONSABILIDAD:
- * - Generar una forma de montaña con pico en el centro
- * - Combinar distancia radial desde el centro con ruido Simplex para variación
- * - Mapear la altura normalizada al rango [minHeight, maxHeight]
- * - Retornar tanto la altura como la altura normalizada para uso en colores
- * 
- * FORMA DE MONTAÑA:
- * - El centro del chunk (q=0, r=0) es el pico de la montaña (altura máxima)
- * - La altura disminuye radialmente hacia los bordes usando hexDistance(0, 0, q, r)
- * - Se usa Math.pow(1.0 - rNorm, 1.4) para crear un pico fuerte en el centro
- * - El ruido Simplex se agrega como variación local para textura detallada
- * 
- * @param {number} q - Coordenada axial q (eje horizontal)
- * @param {number} r - Coordenada axial r (eje diagonal)
- * @param {Object} noise - Objeto generador de ruido Simplex con método noise2D
- * @param {Object} context - Contexto opcional con gridRadius (usa GRID_RADIUS global si no se proporciona)
- * @returns {{height: number, heightNorm: number}} Objeto con altura final e índice y altura normalizada (0..1)
+ * Genera un pico en el centro que disminuye radialmente hacia los bordes.
  */
 function computeRockHeight(q, r, noise, context = null) {
   // Obtener el radio de la grilla desde el contexto o usar el valor global
@@ -89,33 +72,7 @@ function computeRockHeight(q, r, noise, context = null) {
 
 /**
  * Calcula el color de una celda del bioma Rock basado en su altura normalizada.
- * 
- * RESPONSABILIDAD:
- * - Dividir el terreno en 3 bandas según la altura normalizada
- * - Banda baja (heightNorm < 0.2): verde (pasto en la base de la montaña)
- * - Banda media (0.2 <= heightNorm < 0.97): roca gris (con gradiente de oscuro a medio)
- * - Banda alta (heightNorm >= 0.97): nieve (blanco en la punta)
- * 
- * BANDAS DE COLOR:
- * 
- * 1. BANDA BAJA (heightNorm < 0.2) - ZONA VERDE:
- *    - Color similar al bioma Grass: [0.33, 0.61, 0.23]
- *    - Representa pasto/vegetación en la base de la montaña
- *    - Ocupa el 20% inferior de la montaña
- * 
- * 2. BANDA MEDIA (0.2 <= heightNorm < 0.97) - ZONA ROCOSA:
- *    - Color base: [0.45, 0.48, 0.52] (gris medio)
- *    - Color oscuro: [0.25, 0.27, 0.32] (gris oscuro)
- *    - Gradiente lineal: más oscuro en la parte baja de la banda, más claro arriba
- *    - Ocupa el 77% medio de la montaña (de 20% a 97%)
- * 
- * 3. BANDA ALTA (heightNorm >= 0.97) - ZONA NEVADA:
- *    - Color: [0.95, 0.96, 0.98] (blanco casi puro con toque azulado)
- *    - Representa nieve en la punta de la montaña
- *    - Ocupa el 3% superior de la montaña (de 97% a 100%)
- * 
- * @param {number} heightNorm - Altura normalizada de la celda (0..1)
- * @returns {number[]} Color RGB [r, g, b] según la banda correspondiente
+ * Divide el terreno en 3 bandas: verde (base), roca gris (medio), nieve (punta).
  */
 function computeRockColor(heightNorm) {
   // BANDA BAJA: Zona verde (base de la montaña)
@@ -165,13 +122,13 @@ function computeRockColor(heightNorm) {
  * - Sin ovejas (terreno montañoso no es adecuado para ellas)
  */
 const rockBiome = {
-  name: "Rock",                               // Nombre del bioma (para identificación)
-  minHeight: 1.0,                             // Altura mínima (base de la montaña, más alta que Forest)
-  maxHeight: 40.0,                            // Altura máxima (pico de la montaña, MUCHO más alto que Forest - montaña prominente)
-  heightNoiseScale: 0.2,                      // Escala del ruido para variación local (ajustable)
-  treeDensity: 0.13,                          // 8% de densidad de árboles (solo en zona verde)
-  sheepDensity: 0.0,                          // Sin ovejas en este bioma
-  computeHeight: computeRockHeight,           // Función específica para calcular alturas con forma de montaña
-  computeColor: computeRockColor              // Función específica para calcular colores en 3 bandas
+  name: "Rock",
+  minHeight: 1.0,
+  maxHeight: 40.0,
+  heightNoiseScale: 0.2,
+  treeDensity: 0.13,
+  sheepDensity: 0.0,
+  computeHeight: computeRockHeight,
+  computeColor: computeRockColor
 };
 

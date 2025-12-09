@@ -20,21 +20,7 @@
 
 /**
  * Calcula el color de una celda del bioma Wheat basado en su altura.
- * 
- * RESPONSABILIDAD:
- * - Generar colores amarillo/dorado para el terreno (campo de trigo)
- * - Marcar áreas muy bajas como candidatas a agua
- * - Aplicar variación sutil de color
- * 
- * PALETA DE COLORES WHEAT:
- * - Color base: Naranja/marrón arcillado [0.75, 0.55, 0.35] (suelo de campo)
- * - Variación sutil para textura natural
- * - Agua: Azul oscuro (definido en main.js)
- * 
- * @param {number} height - Altura de la celda (entero entre minHeight y maxHeight)
- * @param {Object} biome - Objeto bioma con { baseColor, minHeight, maxHeight, colorVariance }
- * @param {Object} cell - Objeto celda (opcional, usado para marcar candidateWater)
- * @returns {number[]} Color RGB [r, g, b] con variación sutil
+ * Genera colores naranja/marrón arcillado y detecta zonas de agua.
  */
 function computeWheatColor(height, biome, cell = null) {
   // Normaliza la altura del rango [minHeight, maxHeight] a [0, 1]
@@ -131,15 +117,15 @@ function computeWheatColor(height, biome, cell = null) {
  * - Sin ovejas por defecto (pero se puede ajustar)
  */
 const wheatBiome = {
-  name: "Wheat",                               // Nombre del bioma (para identificación)
-  baseColor: [0.85, 0.518, 0.255],              // Naranja/marrón arcillado (suelo de campo)
-  minHeight: 1,                                // Altura mínima (terreno casi plano)
-  maxHeight: 2,                                // Altura máxima (muy poca variación)
-  colorVariance: 0.05,                         // Variación de color sutil
-  colorVariationProbability: 0.4,              // Probabilidad de variación (40% de celdas)
-  wheatDensity: 0.85,                          // 85% de densidad de trigo (muy denso, como campo)
-  sheepDensity: 0.0,                           // Sin ovejas por defecto
-  heightNoiseScale: 0.10,                      // Escala del ruido muy baja para terreno casi plano
-  computeColor: computeWheatColor              // Función específica para calcular colores
+  name: "Wheat",
+  baseColor: [0.85, 0.518, 0.255],
+  minHeight: 1,
+  maxHeight: 2,
+  colorVariance: 0.05,
+  colorVariationProbability: 0.4,
+  wheatDensity: 0.85,
+  sheepDensity: 0.0,
+  heightNoiseScale: 0.10,
+  computeColor: computeWheatColor
 };
 

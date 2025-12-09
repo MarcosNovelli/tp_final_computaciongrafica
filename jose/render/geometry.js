@@ -112,8 +112,6 @@ function createHexagonPrismData(radius = HEX_RADIUS_WORLD, height = 1.0) {
     normals.push(normal2[0], normal2[1], normal2[2]);
   }
   
-  console.log(`✓ Prisma hexagonal generado con normales: radio=${radius}, altura=${height}`);
-  
   return {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals)

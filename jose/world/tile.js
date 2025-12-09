@@ -32,18 +32,7 @@
 
 /**
  * Crea un nuevo Tile (isla hexagonal).
- * 
- * Un Tile es una unidad independiente que representa una isla completa:
- * - Tiene su propio bioma asignado
- * - Genera su propio terreno (celdas hexagonales)
- * - Genera sus propios objetos (árboles, ovejas, trigo)
- * - Tiene una posición global (offset) en el mundo
- * 
- * @param {Object} biome - Bioma asignado a este tile (grassBiome, forestBiome, etc.)
- * @param {number} offsetX - Offset en X del tile en el mundo (posición global)
- * @param {number} offsetZ - Offset en Z del tile en el mundo (posición global)
- * @param {Object} noiseGenerator - Generador de ruido Simplex (puede tener offset aplicado)
- * @returns {Object} Objeto Tile con métodos generate(), getCells(), getObjectInstances(), getOffset()
+ * Un Tile representa una isla completa con su terreno, objetos y posición global.
  */
 function createTile(biome, offsetX = 0, offsetZ = 0, noiseGenerator = null) {
   // Estado interno del tile
@@ -55,54 +44,26 @@ function createTile(biome, offsetX = 0, offsetZ = 0, noiseGenerator = null) {
   
   /**
    * Genera el contenido del tile (celdas, objetos, etc.).
-   * 
-   * FLUJO DE GENERACIÓN:
-   * 1. Crea las celdas hexagonales usando createCells() (centradas en (0,0) localmente)
-   * 2. Aplica el offset de posición a TODAS las celdas (worldX, worldZ)
-   * 3. Genera objetos usando las celdas YA DESPLAZADAS (usan worldX/worldZ directamente)
-   * 
-   * IMPORTANTE: ALINEACIÓN DE OBJETOS
-   * Los objetos se generan DESPUÉS de que las celdas tienen sus worldX/worldZ finales.
-   * Las funciones createTreeInstances(), createSheepInstances(), createWheatInstances()
-   * usan cell.worldX y cell.worldZ directamente, por lo que los objetos ya están
-   * en la posición correcta global y NO necesitan un offset adicional.
-   * 
-   * Esta función debe llamarse antes de usar getCells() o getObjectInstances()
    */
   function generate() {
     if (generated) {
-      console.warn('Tile ya generado, ignorando llamada a generate()');
       return;
     }
     
-    // Paso 1: Generar celdas del tile usando la función existente createCells()
-    // createCells() genera celdas centradas en (0, 0) en coordenadas locales del tile
-    // El noiseGenerator puede tener un offset aplicado (para variación entre tiles)
     cells = createCells(biome, noiseGenerator);
     
-    // Paso 2: Aplicar offset de posición a TODAS las celdas
-    // Esto mueve todo el tile a su posición global en el mundo
-    // IMPORTANTE: Esto se hace ANTES de generar los objetos para que los objetos
-    // puedan usar directamente worldX/worldZ de las celdas ya desplazadas
+    // Aplicar offset de posición a todas las celdas
     for (const cell of cells) {
       cell.worldX += offsetX;
       cell.worldZ += offsetZ;
     }
     
-    // Paso 3: Generar objetos del tile usando las funciones existentes
-    // CRÍTICO: Las celdas ya tienen worldX/worldZ desplazados (paso anterior)
-    // Las funciones createTreeInstances(), createSheepInstances(), etc. usan
-    // directamente cell.worldX y cell.worldZ, por lo que los objetos ya están
-    // en la posición correcta y NO necesitan un offset adicional
+    // Generar objetos usando las celdas ya desplazadas
     treeInstances = createTreeInstances(cells, biome);
     sheepInstances = createSheepInstances(cells, biome);
     wheatInstances = createWheatInstances(cells, biome);
     
-    // NOTA: Ya NO aplicamos offset a las matrices modelo de los objetos porque
-    // las celdas ya están desplazadas y los objetos se generan usando esas posiciones
-    
     generated = true;
-    console.log(`✓ Tile generado: ${biome.name || "Unknown"} en (${offsetX.toFixed(1)}, ${offsetZ.toFixed(1)}) - ${cells.length} celdas`);
   }
   
   /**
@@ -112,20 +73,13 @@ function createTile(biome, offsetX = 0, offsetZ = 0, noiseGenerator = null) {
    */
   function getCells() {
     if (!generated) {
-      console.warn('Tile no generado, llamando generate() automáticamente');
       generate();
     }
     return cells;
   }
   
-  /**
-   * Retorna todas las instancias de objetos del tile.
-   * 
-   * @returns {Object} Objeto con { treeInstances, sheepInstances, wheatInstances }
-   */
   function getObjectInstances() {
     if (!generated) {
-      console.warn('Tile no generado, llamando generate() automáticamente');
       generate();
     }
     return {

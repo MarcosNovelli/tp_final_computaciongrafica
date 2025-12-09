@@ -303,7 +303,6 @@ function generateHexagonPrism(radius, height, yBase, positions, normals, indices
   }
 
   return currentIndex;
-  return currentIndex;
 }
 
 /**
@@ -435,10 +434,6 @@ function createTreeMesh(gl) {
   // Cada triángulo tiene 3 índices, así que: 24 * 3 = 72 índices
   const trunkTriangleCount = 24;
   const trunkIndexCount = trunkTriangleCount * 3;
-
-  console.log(`✓ Malla de árbol generada: ${positions.length / 3} vértices, ${indices.length / 3} triángulos`);
-  console.log(`  - Tronco: ${trunkIndexCount / 3} triángulos`);
-  console.log(`  - Copa: ${(indices.length - trunkIndexCount) / 3} triángulos`);
 
   return {
     positionBuffer: positionBuffer,

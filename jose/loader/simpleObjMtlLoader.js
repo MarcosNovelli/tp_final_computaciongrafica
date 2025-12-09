@@ -312,14 +312,10 @@ async function loadObjWithMtl(gl, objUrl, mtlUrl) {
     // Cargar y parsear MTL para obtener el color
     const mtlResponse = await fetch(mtlUrl);
     if (!mtlResponse.ok) {
-      console.warn(`Advertencia: No se pudo cargar ${mtlUrl}, usando color por defecto`);
+      // Usar color por defecto
     }
     const mtlText = await mtlResponse.text();
     const materialColor = parseMTL(mtlText);
-    console.log(`✓ Material MTL cargado: color difuso Kd = [${materialColor[0].toFixed(3)}, ${materialColor[1].toFixed(3)}, ${materialColor[2].toFixed(3)}]`);
-    if (materialColor[0] === 0.9 && materialColor[1] === 0.9 && materialColor[2] === 0.9) {
-      console.warn(`  ⚠️ Usando color por defecto - posiblemente no se encontró Kd en el MTL`);
-    }
     
     // Cargar y parsear OBJ (ahora separado por materiales)
     const objResponse = await fetch(objUrl);
@@ -335,17 +331,10 @@ async function loadObjWithMtl(gl, objUrl, mtlUrl) {
       throw new Error(`Error: El archivo OBJ no se parseó correctamente`);
     }
   
-  const whiteTriCount = objData.white.indices.length / 3;
-  const blackTriCount = objData.black.indices.length / 3;
-  console.log(`✓ OBJ cargado: White=${whiteTriCount} triángulos, Black=${blackTriCount} triángulos`);
-  console.log(`  Bounding box: min [${objData.bounds.min[0].toFixed(2)}, ${objData.bounds.min[1].toFixed(2)}, ${objData.bounds.min[2].toFixed(2)}], max [${objData.bounds.max[0].toFixed(2)}, ${objData.bounds.max[1].toFixed(2)}, ${objData.bounds.max[2].toFixed(2)}]`);
-  
   // Calcular el centro del bounding box para centrar el modelo en el origen
   const centerX = (objData.bounds.min[0] + objData.bounds.max[0]) / 2;
-  const centerY = objData.bounds.min[1]; // La base del modelo debe estar en y=0
+  const centerY = objData.bounds.min[1];
   const centerZ = (objData.bounds.min[2] + objData.bounds.max[2]) / 2;
-  
-  console.log(`  Centro del modelo: [${centerX.toFixed(2)}, ${centerY.toFixed(2)}, ${centerZ.toFixed(2)}]`);
   
   // Calcular escala automática
   const width = objData.bounds.max[0] - objData.bounds.min[0];
@@ -355,8 +344,6 @@ async function loadObjWithMtl(gl, objUrl, mtlUrl) {
   
   const targetSize = 0.5;
   const scale = maxDimension > 0 ? targetSize / maxDimension : 1.0;
-  
-  console.log(`  Escala automática: ${scale.toFixed(3)} (tamaño objetivo: ${targetSize})`);
   
   // Función auxiliar para centrar y escalar posiciones de un material
   function centerAndScale(positions, normals) {
@@ -457,10 +444,6 @@ async function loadObjWithMtl(gl, objUrl, mtlUrl) {
   const combinedDepth = combinedOriginalMaxZ - combinedOriginalMinZ;
   const combinedMaxDimension = Math.max(combinedWidth, combinedHeight, combinedDepth);
   const combinedScale = combinedMaxDimension > 0 ? targetSize / combinedMaxDimension : 1.0;
-  
-  console.log(`  Bounding box original: min [${combinedOriginalMinX.toFixed(2)}, ${combinedOriginalMinY.toFixed(2)}, ${combinedOriginalMinZ.toFixed(2)}], max [${combinedOriginalMaxX.toFixed(2)}, ${combinedOriginalMaxY.toFixed(2)}, ${combinedOriginalMaxZ.toFixed(2)}]`);
-  console.log(`  Centro de masa original: [${originalCenterOfMassX.toFixed(2)}, ${originalCenterOfMassY.toFixed(2)}, ${originalCenterOfMassZ.toFixed(2)}]`);
-  console.log(`  Escala: ${combinedScale.toFixed(3)}`);
   
   // PASO 2: Centrar usando centro de masa Y escalar en una sola pasada
   // Esto garantiza que el modelo quede centrado en (0,0,0) con base en y=0
@@ -614,7 +597,6 @@ async function loadObjWithMtl(gl, objUrl, mtlUrl) {
   let finalCorrectionZ = verifyBoundingBoxCenterZ;
   
   if (Math.abs(finalCorrectionX) > 0.00001 || Math.abs(finalCorrectionZ) > 0.00001) {
-    console.log(`  ⚠️ Aplicando corrección final usando centro del bounding box (centro visual): restando [${finalCorrectionX.toFixed(8)}, ${finalCorrectionZ.toFixed(8)}]`);
     for (let i = 0; i < whitePositions.length; i += 3) {
       whitePositions[i] -= finalCorrectionX;
       whitePositions[i + 2] -= finalCorrectionZ;
@@ -653,9 +635,8 @@ async function loadObjWithMtl(gl, objUrl, mtlUrl) {
   // CORRECCIÓN SECUNDARIA: Si el bounding box todavía tiene un offset significativo después de centrar por masa,
   // aplicar una corrección sutil (solo 30% del offset) para mejorar el centrado visual sin afectar mucho el centro de masa
   if (Math.abs(verifyBoundingBoxCenterX) > 0.001 || Math.abs(verifyBoundingBoxCenterZ) > 0.001) {
-    const secondaryCorrectionX = verifyBoundingBoxCenterX * 0.3; // Solo 30% del offset
+    const secondaryCorrectionX = verifyBoundingBoxCenterX * 0.3;
     const secondaryCorrectionZ = verifyBoundingBoxCenterZ * 0.3;
-    console.log(`  ⚠️ Aplicando corrección secundaria sutil del bounding box: restando [${secondaryCorrectionX.toFixed(8)}, ${secondaryCorrectionZ.toFixed(8)}]`);
     for (let i = 0; i < whitePositions.length; i += 3) {
       whitePositions[i] -= secondaryCorrectionX;
       whitePositions[i + 2] -= secondaryCorrectionZ;
@@ -691,66 +672,6 @@ async function loadObjWithMtl(gl, objUrl, mtlUrl) {
     verifyBoundingBoxCenterZ = (verifyMinZ + verifyMaxZ) / 2;
   }
   
-  console.log(`  ✓ Centrado iterativo completado (${iterations} iteraciones):`);
-  console.log(`    - Centro de masa final: [${verifyCenterOfMassX.toFixed(8)}, ${verifyCenterOfMassZ.toFixed(8)}]`);
-  console.log(`    - Centro bounding box final: [${verifyBoundingBoxCenterX.toFixed(8)}, ${verifyBoundingBoxCenterZ.toFixed(8)}]`);
-  console.log(`    - Bounding box: X[${verifyMinX.toFixed(4)}, ${verifyMaxX.toFixed(4)}], Y[${verifyMinY.toFixed(4)}, ${verifyMaxY.toFixed(4)}], Z[${verifyMinZ.toFixed(4)}, ${verifyMaxZ.toFixed(4)}]`);
-  
-  // DIAGNÓSTICO: Verificar qué parte del modelo está cerca del origen
-  // Esto ayuda a entender si el centro visual está en el origen
-  let verticesNearOrigin = 0;
-  let verticesNearOriginX = 0;
-  let verticesNearOriginZ = 0;
-  for (let i = 0; i < whitePositions.length; i += 3) {
-    const distFromOrigin = Math.sqrt(whitePositions[i] * whitePositions[i] + whitePositions[i + 2] * whitePositions[i + 2]);
-    if (distFromOrigin < 0.05) { // Dentro de 0.05 unidades del origen
-      verticesNearOrigin++;
-      verticesNearOriginX += whitePositions[i];
-      verticesNearOriginZ += whitePositions[i + 2];
-    }
-  }
-  for (let i = 0; i < blackPositions.length; i += 3) {
-    const distFromOrigin = Math.sqrt(blackPositions[i] * blackPositions[i] + blackPositions[i + 2] * blackPositions[i + 2]);
-    if (distFromOrigin < 0.05) {
-      verticesNearOrigin++;
-      verticesNearOriginX += blackPositions[i];
-      verticesNearOriginZ += blackPositions[i + 2];
-    }
-  }
-  if (verticesNearOrigin > 0) {
-    const avgNearOriginX = verticesNearOriginX / verticesNearOrigin;
-    const avgNearOriginZ = verticesNearOriginZ / verticesNearOrigin;
-    console.log(`    - Vértices cerca del origen (${verticesNearOrigin}): promedio [${avgNearOriginX.toFixed(6)}, ${avgNearOriginZ.toFixed(6)}]`);
-  }
-  
-  // Verificar simetría del bounding box para entender el centro visual
-  const rangeX = verifyMaxX - verifyMinX;
-  const rangeZ = verifyMaxZ - verifyMinZ;
-  const asymmetryX = Math.abs(verifyMinX + verifyMaxX); // Debería ser 0 si está centrado
-  const asymmetryZ = Math.abs(verifyMinZ + verifyMaxZ); // Debería ser 0 si está centrado
-  console.log(`    - Rango del modelo: X=${rangeX.toFixed(4)}, Z=${rangeZ.toFixed(4)}`);
-  console.log(`    - Asimetría del bounding box: X=${asymmetryX.toFixed(6)}, Z=${asymmetryZ.toFixed(6)}`);
-  
-  // Verificar que la base esté en y=0
-  if (Math.abs(verifyMinY) > 0.01) {
-    console.warn(`  ⚠️ ADVERTENCIA: La base del modelo no está en y=0. minY=${verifyMinY.toFixed(4)}`);
-  } else {
-    console.log(`  ✓ Base del modelo en y=${verifyMinY.toFixed(4)}`);
-  }
-  
-  // Verificación final de centrado
-  // Verificar que tanto el bounding box como el centro de masa estén centrados
-  const isBoundingBoxCentered = Math.abs(verifyBoundingBoxCenterX) < 0.00001 && Math.abs(verifyBoundingBoxCenterZ) < 0.00001;
-  const isCenterOfMassCentered = Math.abs(verifyCenterOfMassX) < 0.00001 && Math.abs(verifyCenterOfMassZ) < 0.00001;
-  
-  if (isBoundingBoxCentered && isCenterOfMassCentered) {
-    console.log(`  ✓ Modelo perfectamente centrado (base en y=${verifyMinY.toFixed(4)}, centro visual en x=0, z=0)`);
-  } else {
-    console.warn(`  ⚠️ ADVERTENCIA: El modelo aún no está perfectamente centrado.`);
-    console.warn(`    - Centro bounding box: [${verifyBoundingBoxCenterX.toFixed(8)}, ${verifyBoundingBoxCenterZ.toFixed(8)}]`);
-    console.warn(`    - Centro de masa: [${verifyCenterOfMassX.toFixed(8)}, ${verifyCenterOfMassZ.toFixed(8)}]`);
-  }
-  
   // Crear buffers WebGL para cada material
   const whitePositionBuffer = createBuffer(gl, whitePositions);
   const whiteNormalBuffer = createBuffer(gl, objData.white.normals);
@@ -764,9 +685,7 @@ async function loadObjWithMtl(gl, objUrl, mtlUrl) {
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, blackIndexBuffer);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, objData.black.indices, gl.STATIC_DRAW);
   
-    console.log(`  ✓ Buffers WebGL creados para ambos materiales`);
-    
-    // Validar que todos los buffers se crearon correctamente
+  // Validar que todos los buffers se crearon correctamente
     if (!whitePositionBuffer || !whiteNormalBuffer || !whiteIndexBuffer ||
         !blackPositionBuffer || !blackNormalBuffer || !blackIndexBuffer) {
       throw new Error('Error: No se pudieron crear todos los buffers WebGL');

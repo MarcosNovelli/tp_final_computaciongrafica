@@ -58,17 +58,14 @@ function createCells(biome, noiseGenerator = null) {
         SimplexNoiseModule = SimplexNoise;
       } else if (typeof window !== 'undefined' && typeof window.createNoise2D === 'function') {
         noise2D = window.createNoise2D();
-        console.log('✓ SimplexNoise cargado y funcionando (createNoise2D directo en window)');
       }
       
       if (SimplexNoiseModule && !noise2D) {
         if (typeof SimplexNoiseModule.createNoise2D === 'function') {
           noise2D = SimplexNoiseModule.createNoise2D();
-          console.log('✓ SimplexNoise cargado y funcionando (API v3.x: createNoise2D)');
         } else if (typeof SimplexNoiseModule === 'function') {
           const simplex = new SimplexNoiseModule();
           noise2D = simplex.noise2D.bind(simplex);
-          console.log('✓ SimplexNoise cargado y funcionando (API v2.x: constructor)');
         } else {
           throw new Error('SimplexNoise encontrado pero sin API reconocida');
         }
@@ -82,8 +79,6 @@ function createCells(biome, noiseGenerator = null) {
       if (typeof testValue !== 'number' || isNaN(testValue) || !isFinite(testValue)) {
         throw new Error('noise2D devolvió un valor inválido: ' + testValue);
       }
-      
-      console.log(`✓ SimplexNoise verificado: testValue = ${testValue.toFixed(6)}`);
       
       if (noiseOffsetX !== 0 || noiseOffsetZ !== 0) {
         finalNoiseGenerator = {
@@ -176,18 +171,7 @@ function createCells(biome, noiseGenerator = null) {
       cells.push(cell);
     }
   }
-  
-  console.log(`✓ ${cells.length} celdas creadas con bioma (radio hexagonal: ${GRID_RADIUS}):`);
-  console.log(`  - Alturas: ${minHeight} a ${maxHeight}`);
-  if (baseColor && Array.isArray(baseColor) && baseColor.length >= 3) {
-    console.log(`  - Color base: [${baseColor[0].toFixed(2)}, ${baseColor[1].toFixed(2)}, ${baseColor[2].toFixed(2)}]`);
-  } else {
-    console.log(`  - Color: calculado dinámicamente por computeColor`);
-  }
-  if (colorVariance !== undefined) {
-    console.log(`  - Variación de color: ±${colorVariance}`);
-  }
-  
+
   if (biome.name === "Forest" || biome.name === "Clay" || biome.name === "Wheat") {
     const MIN_WATER_CLUSTER = biome.name === "Wheat" ? 4 : 6;
     detectWaterClusters(cells, MIN_WATER_CLUSTER);
@@ -216,7 +200,7 @@ function createTreeInstances(cells, targetBiome = null) {
   const treeInstances = [];
   let biomeCellsCount = 0;
   
-  const treeDensity = targetBiome.treeDensity !== undefined ? targetBiome.treeDensity : TREE_DENSITY;
+  const treeDensity = targetBiome.treeDensity !== undefined ? targetBiome.treeDensity : (typeof grassBiome !== 'undefined' && grassBiome.treeDensity !== undefined ? grassBiome.treeDensity : 0.08);
   
   for (const cell of cells) {
     if (cell.biome !== targetBiome) {
@@ -293,9 +277,6 @@ function createTreeInstances(cells, targetBiome = null) {
     treeInstances.push({ modelMatrix: modelMatrix });
   }
 
-  const biomeName = targetBiome.name || "Unknown";
-  console.log(`✓ ${treeInstances.length} árboles instanciados sobre ${biomeCellsCount} celdas de ${biomeName} (de ${cells.length} totales, densidad: ${(treeDensity * 100).toFixed(1)}%)`);
-
   return treeInstances;
 }
 
@@ -358,10 +339,7 @@ function createWheatInstances(cells, targetBiome = null) {
     
     wheatInstances.push({ modelMatrix: modelMatrix });
   }
-  
-  const biomeName = targetBiome.name || "Unknown";
-  console.log(`✓ ${wheatInstances.length} plantas de trigo instanciadas sobre ${biomeCellsCount} celdas de ${biomeName} (densidad: ${(wheatDensity * 100).toFixed(1)}%)`);
-  
+
   return wheatInstances;
 }
 
@@ -378,7 +356,7 @@ function createSheepInstances(cells, targetBiome = null) {
   let skippedBorder = 0;
   let skippedNoHeight = 0;
   
-  const sheepDensity = targetBiome.sheepDensity !== undefined ? targetBiome.sheepDensity : SHEEP_DENSITY;
+  const sheepDensity = targetBiome.sheepDensity !== undefined ? targetBiome.sheepDensity : (typeof grassBiome !== 'undefined' && grassBiome.sheepDensity !== undefined ? grassBiome.sheepDensity : 0.06);
   
   const SAFE_MARGIN = 1;
   
@@ -411,7 +389,6 @@ function createSheepInstances(cells, targetBiome = null) {
     if (typeof cell.worldX !== 'number' || typeof cell.worldZ !== 'number' ||
         isNaN(cell.worldX) || isNaN(cell.worldZ) ||
         !isFinite(cell.worldX) || !isFinite(cell.worldZ)) {
-      console.warn(`  ⚠️ Celda (${cell.q}, ${cell.r}) tiene coordenadas inválidas, saltando`);
       continue;
     }
     
@@ -427,13 +404,6 @@ function createSheepInstances(cells, targetBiome = null) {
     const visualHeight = cell.height * HEIGHT_UNIT;
     const actualHexHeight = HEX_BASE_HEIGHT * visualHeight;
     const posY = actualHexHeight;
-    
-    if (sheepInstances.length < 5) {
-      console.log(`  Oveja ${sheepInstances.length + 1}:`);
-      console.log(`    - Celda: (${cell.q}, ${cell.r}), distancia=${distance.toFixed(2)}`);
-      console.log(`    - Posición hexágono: (${posX.toFixed(6)}, 0, ${posZ.toFixed(6)})`);
-      console.log(`    - Posición oveja: (${posX.toFixed(6)}, ${posY.toFixed(6)}, ${posZ.toFixed(6)})`);
-    }
     
     const scale = 1.2;
     
@@ -454,11 +424,6 @@ function createSheepInstances(cells, targetBiome = null) {
     
     sheepInstances.push({ modelMatrix: modelMatrix });
   }
-  
-  const biomeName = targetBiome.name || "Unknown";
-  console.log(`✓ ${sheepInstances.length} ovejas instanciadas sobre ${validCells} celdas válidas de ${biomeName} (densidad: ${(sheepDensity * 100).toFixed(1)}%)`);
-  if (skippedBorder > 0) console.log(`  (saltadas ${skippedBorder} celdas cerca del borde por seguridad)`);
-  if (skippedNoHeight > 0) console.log(`  (saltadas ${skippedNoHeight} celdas sin altura válida)`);
 
   return sheepInstances;
 }
