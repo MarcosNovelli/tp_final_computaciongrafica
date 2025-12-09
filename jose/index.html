@@ -46,6 +46,7 @@
         10px 10px 20px rgba(0, 0, 0, 0.4);
       letter-spacing: 2px;
       text-transform: uppercase;
+      display: none; /* Oculto por defecto, se mostrará solo en singleBiome mode */
     }
   </style>
 </head>
@@ -63,27 +64,38 @@
   <script src="https://cdn.jsdelivr.net/npm/simplex-noise@2.4.0/simplex-noise.js"></script>
   <!-- Importante: cargar gl.js ANTES de main.js para que las funciones estén disponibles -->
   <script src="render/gl.js"></script>
+  <!-- Cargar utilidades matemáticas y de configuración -->
+  <script src="utils/config.js"></script>
+  <script src="utils/math.js"></script>
+  <script src="utils/hex.js"></script>
+  <!-- Cargar shaders -->
+  <script src="shaders/shaders.js"></script>
+  <!-- Cargar geometría y renderizado -->
+  <script src="render/geometry.js"></script>
+  <script src="render/renderer.js"></script>
   <!-- Cargar loader de modelos OBJ/MTL -->
   <script src="loader/simpleObjMtlLoader.js?v=8"></script>
-         <!-- Cargar módulo para generar árboles low-poly programáticamente -->
-         <script src="objects/tree.js"></script>
-         <!-- Cargar módulo para generar plantas de trigo low-poly programáticamente -->
-         <script src="objects/wheat.js"></script>
-         <!-- Cargar main.js primero para tener funciones auxiliares (randomInRange, clamp01, generateColor) -->
-  <!-- main.js define las funciones pero NO ejecuta main() hasta que todos los scripts estén cargados -->
-  <script src="main.js?v=2"></script>
+  <!-- Cargar módulo para generar árboles low-poly programáticamente -->
+  <script src="objects/tree.js"></script>
+  <!-- Cargar módulo para generar plantas de trigo low-poly programáticamente -->
+  <script src="objects/wheat.js"></script>
   <!-- Cargar biomas (en orden: primero Grass, luego otros) -->
-  <!-- Estos archivos definen los biomas globalmente y dependen de las funciones auxiliares de main.js -->
+  <!-- Estos archivos definen los biomas globalmente y deben cargarse ANTES de world/objects.js -->
   <script src="biomes/grassBiome.js"></script>
   <script src="biomes/forestBiome.js"></script>
-         <script src="biomes/rockBiome.js"></script>
-         <script src="biomes/clayBiome.js"></script>
-         <script src="biomes/desertBiome.js"></script>
-         <script src="biomes/wheatBiome.js"></script>
-         <!-- Cargar módulos del sistema de mundo (Tile y Board) DESPUÉS de los biomas -->
-         <!-- Estos módulos necesitan que los biomas ya estén definidos -->
-         <script src="world/tile.js"></script>
-         <script src="world/board.js"></script>
+  <script src="biomes/rockBiome.js"></script>
+  <script src="biomes/clayBiome.js"></script>
+  <script src="biomes/desertBiome.js"></script>
+  <script src="biomes/wheatBiome.js"></script>
+  <!-- Cargar funciones de creación de objetos del mundo (después de biomas) -->
+  <script src="world/objects.js"></script>
+  <!-- Cargar módulos del sistema de mundo (Tile y Board) DESPUÉS de los biomas -->
+  <!-- Estos módulos necesitan que los biomas ya estén definidos -->
+  <script src="world/tile.js"></script>
+  <script src="world/board.js"></script>
+  <!-- Cargar main.js -->
+  <!-- main.js define las funciones pero NO ejecuta main() hasta que todos los scripts estén cargados -->
+  <script src="main.js?v=3"></script>
          <!-- main() se ejecuta automáticamente cuando el DOM está listo, después de cargar todos los scripts -->
 </body>
 </html>
