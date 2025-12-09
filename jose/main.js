@@ -86,61 +86,71 @@ async function main() {
   let cells, treeInstances, sheepInstances, wheatInstances, activeBiome;
   let board = null;
   
+  // Ocultar/mostrar título del biome según el modo (lo más temprano posible)
+  const biomeTitle = document.getElementById('biomeTitle');
+  if (biomeTitle) {
+        if (VIEW_MODE === "board") {
+      biomeTitle.style.display = 'none';
+    } else {
+      biomeTitle.style.display = 'block';
+    }
+  }
+  
   if (VIEW_MODE === "board") {
     // MODO TABLERO: Crear múltiples tiles con diferentes biomas
-    const sqrt3 = Math.sqrt(3);
+          const sqrt3 = Math.sqrt(3);
     const tileRadius = HEX_RADIUS_WORLD * sqrt3 * GRID_RADIUS + HEX_RADIUS_WORLD;
     
     const ADJUSTMENT_FACTOR = 0.99;
     const HORIZONTAL_SPACING = 2 * tileRadius * ADJUSTMENT_FACTOR;
     const VERTICAL_SPACING = tileRadius * sqrt3 * ADJUSTMENT_FACTOR;
     const HORIZONTAL_OFFSET = tileRadius * ADJUSTMENT_FACTOR;
-    
-    const tilesConfig = [
-      // Línea central de 5 tiles (fila 0)
-      { x: 0, z: 0},
-      { x: HORIZONTAL_SPACING, z: 0 },
-      { x: HORIZONTAL_SPACING * 2, z: 0 },
-      { x: HORIZONTAL_SPACING * 3, z: 0 },
-      { x: HORIZONTAL_SPACING * 4, z: 0 },
+          
+          const tilesConfig = [
+            // Línea central de 5 tiles (fila 0)
+            { x: 0, z: 0},
+            { x: HORIZONTAL_SPACING, z: 0 },
+            { x: HORIZONTAL_SPACING * 2, z: 0 },
+            { x: HORIZONTAL_SPACING * 3, z: 0 },
+            { x: HORIZONTAL_SPACING * 4, z: 0 },
 
-      // Línea inferior de 4 tiles (fila 1, desplazada)
-      { x: HORIZONTAL_OFFSET, z: VERTICAL_SPACING},
-      { x: HORIZONTAL_OFFSET + HORIZONTAL_SPACING, z: VERTICAL_SPACING },
-      { x: HORIZONTAL_OFFSET + HORIZONTAL_SPACING * 2, z: VERTICAL_SPACING },
-      { x: HORIZONTAL_OFFSET + HORIZONTAL_SPACING * 3, z: VERTICAL_SPACING },
-      
-      // Línea superior de 4 tiles (fila -1, desplazada)
-      { x: HORIZONTAL_OFFSET, z: -VERTICAL_SPACING},
-      { x: HORIZONTAL_OFFSET + HORIZONTAL_SPACING, z: -VERTICAL_SPACING },
-      { x: HORIZONTAL_OFFSET + HORIZONTAL_SPACING * 2, z: -VERTICAL_SPACING },
-      { x: HORIZONTAL_OFFSET + HORIZONTAL_SPACING * 3, z: -VERTICAL_SPACING },
-      
-      // Línea inferior más baja de 3 tiles (fila 2)
-      { x: HORIZONTAL_SPACING, z: VERTICAL_SPACING * 2},
-      { x: HORIZONTAL_SPACING * 2, z: VERTICAL_SPACING * 2 },
-      { x: HORIZONTAL_SPACING * 3, z: VERTICAL_SPACING * 2 },
-    
-      // Línea superior más alta de 3 tiles (fila -2)
-      { x: HORIZONTAL_SPACING, z: -VERTICAL_SPACING * 2},
-      { x: HORIZONTAL_SPACING * 2, z: -VERTICAL_SPACING * 2 },
-      { x: HORIZONTAL_SPACING * 3, z: -VERTICAL_SPACING * 2 },
-    ];
-    
-    console.log(`✓ Modo: Tablero (${tilesConfig.length} tiles manuales)`);
-    
-    board = createBoard(tilesConfig, sharedNoiseGenerator);
-    board.generate();
-    
-    cells = board.getAllCells();
-    const allObjects = board.getAllObjectInstances();
-    treeInstances = allObjects.treeInstances;
-    sheepInstances = allObjects.sheepInstances;
-    wheatInstances = allObjects.wheatInstances;
-    
-    activeBiome = { name: "Board" };
-    
-    console.log(`✓ Tablero generado: ${cells.length} celdas totales, ${treeInstances.length} árboles, ${sheepInstances.length} ovejas, ${wheatInstances.length} trigo`);
+            // Línea inferior de 4 tiles (fila 1, desplazada)
+            { x: HORIZONTAL_OFFSET, z: VERTICAL_SPACING},
+            { x: HORIZONTAL_OFFSET + HORIZONTAL_SPACING, z: VERTICAL_SPACING },
+            { x: HORIZONTAL_OFFSET + HORIZONTAL_SPACING * 2, z: VERTICAL_SPACING },
+            { x: HORIZONTAL_OFFSET + HORIZONTAL_SPACING * 3, z: VERTICAL_SPACING },
+            
+            // Línea superior de 4 tiles (fila -1, desplazada)
+            { x: HORIZONTAL_OFFSET, z: -VERTICAL_SPACING},
+            { x: HORIZONTAL_OFFSET + HORIZONTAL_SPACING, z: -VERTICAL_SPACING },
+            { x: HORIZONTAL_OFFSET + HORIZONTAL_SPACING * 2, z: -VERTICAL_SPACING },
+            { x: HORIZONTAL_OFFSET + HORIZONTAL_SPACING * 3, z: -VERTICAL_SPACING },
+            
+            // Línea inferior más baja de 3 tiles (fila 2)
+            { x: HORIZONTAL_SPACING, z: VERTICAL_SPACING * 2},
+            { x: HORIZONTAL_SPACING * 2, z: VERTICAL_SPACING * 2 },
+            { x: HORIZONTAL_SPACING * 3, z: VERTICAL_SPACING * 2 },
+        
+            // Línea superior más alta de 3 tiles (fila -2)
+            { x: HORIZONTAL_SPACING, z: -VERTICAL_SPACING * 2},
+            { x: HORIZONTAL_SPACING * 2, z: -VERTICAL_SPACING * 2 },
+            { x: HORIZONTAL_SPACING * 3, z: -VERTICAL_SPACING * 2 },
+          ];
+          
+          console.log(`✓ Modo: Tablero (${tilesConfig.length} tiles manuales)`);
+          
+          board = createBoard(tilesConfig, sharedNoiseGenerator);
+          board.generate();
+          
+          cells = board.getAllCells();
+          const allObjects = board.getAllObjectInstances();
+          treeInstances = allObjects.treeInstances;
+          sheepInstances = allObjects.sheepInstances;
+          wheatInstances = allObjects.wheatInstances;
+          
+          activeBiome = { name: "Board" };
+          
+          console.log(`✓ Tablero generado: ${cells.length} celdas totales, ${treeInstances.length} árboles, ${sheepInstances.length} ovejas, ${wheatInstances.length} trigo`);
   } else {
     // MODO BIOMA ÚNICO: Lógica existente (un solo tile)
     console.log(`✓ Modo: Bioma Único`);
@@ -205,15 +215,9 @@ async function main() {
     pageTitle.textContent = activeBiome.name || 'Bioma';
   }
   
-  // Actualizar el título visible en pantalla
-  const biomeTitle = document.getElementById('biomeTitle');
-  if (biomeTitle) {
-    if (VIEW_MODE === "board") {
-      biomeTitle.style.display = 'none';
-    } else {
-      biomeTitle.style.display = 'block';
+  // Actualizar el texto del título visible en pantalla (solo en singleBiome mode)
+  if (biomeTitle && VIEW_MODE !== "board") {
       biomeTitle.textContent = (activeBiome.name || 'Bioma') + ' Biome';
-    }
   }
   
   // Paso 10: Preparar matrices de vista y proyección
